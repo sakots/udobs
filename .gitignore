@@ -1,0 +1,5 @@
+# 個人の接続情報・パスワード
+.env
+
+# Node.js
+node_modules/
