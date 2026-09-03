@@ -1,6 +1,10 @@
+// udobs: UDトークの字幕をOBSに表示するためのツール
+// v0.1.0
+
 import { parseConfig, toObsClientOptions, helpText } from './config.js';
 import { ObsClient } from './obs.js';
 import { UdtalkWebClient } from './udtalk-web-client.js';
+import { wrapText } from './text-wrap.js';
 
 try {
   process.loadEnvFile('.env');
@@ -30,7 +34,11 @@ obs.connect();
 const udtalk = new UdtalkWebClient({
   url: config.udtalkPublicUrl,
   pollMs: config.pollMs,
-  onText: (text) => { obs.setText(text); console.info(`字幕を更新: ${text}`); },
+  onText: (text) => {
+    const caption = wrapText(text, config.maxCharsPerLine);
+    obs.setText(caption);
+    console.info(`字幕を更新: ${caption}`);
+  },
 });
 udtalk.start();
 
