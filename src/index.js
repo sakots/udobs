@@ -1,6 +1,6 @@
 import { parseConfig, toObsClientOptions, helpText } from './config.js';
 import { ObsClient } from './obs.js';
-import { startTextInputServer } from './text-input-server.js';
+import { UdtalkWebClient } from './udtalk-web-client.js';
 
 try {
   process.loadEnvFile('.env');
@@ -27,13 +27,15 @@ try {
 
 const obs = new ObsClient(toObsClientOptions(config));
 obs.connect();
-const inputServer = startTextInputServer({
-  port: config.inputPort,
+const udtalk = new UdtalkWebClient({
+  url: config.udtalkPublicUrl,
+  pollMs: config.pollMs,
   onText: (text) => { obs.setText(text); console.info(`字幕を更新: ${text}`); },
 });
+udtalk.start();
 
 function shutdown() {
-  inputServer.close();
+  udtalk.stop();
   console.info('終了しました。');
   process.exit(0);
 }
