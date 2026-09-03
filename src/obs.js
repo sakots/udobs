@@ -34,9 +34,10 @@ export class ObsClient {
     }
     this.#socket.addEventListener('open', () => this.log.info(`OBSに接続しました: ${this.url}`));
     this.#socket.addEventListener('message', ({ data }) => this.#handleMessage(data));
-    this.#socket.addEventListener('close', () => {
+    this.#socket.addEventListener('close', ({ code, reason }) => {
       this.#ready = false;
-      this.log.warn(`OBSとの接続が切れました。${this.reconnectMs}ms後に再接続します。`);
+      const detail = reason ? ` 理由: ${reason}` : '';
+      this.log.warn(`OBSとの接続が切れました（code: ${code}）。${detail} ${this.reconnectMs}ms後に再接続します。`);
       this.#reconnectTimer = setTimeout(() => this.connect(), this.reconnectMs);
     });
     this.#socket.addEventListener('error', () => {}); // close イベントで再接続する
@@ -54,6 +55,9 @@ export class ObsClient {
       const authentication = message.d.authentication;
       const identify = { rpcVersion: 1, eventSubscriptions: 0 };
       if (authentication) {
+        if (!this.password) {
+          this.log.error('OBSは認証を要求していますが、OBS_PASSWORD が空です。.env にパスワードを設定してください。');
+        }
         identify.authentication = createObsAuthentication(
           this.password, authentication.salt, authentication.challenge,
         );
