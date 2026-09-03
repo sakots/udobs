@@ -1,5 +1,6 @@
 import { parseConfig, toObsClientOptions, helpText } from './config.js';
 import { ObsClient } from './obs.js';
+import { startTextInputServer } from './text-input-server.js';
 
 try {
   process.loadEnvFile('.env');
@@ -26,36 +27,13 @@ try {
 
 const obs = new ObsClient(toObsClientOptions(config));
 obs.connect();
-
-let yncSocket;
-let yncReconnectTimer;
-function connectYnc() {
-  clearTimeout(yncReconnectTimer);
-  try {
-    yncSocket = new WebSocket(config.yncUrl);
-  } catch (error) {
-    console.error(`UDトーク入力URLが不正です: ${JSON.stringify(config.yncUrl)} (${error.message})`);
-    yncReconnectTimer = setTimeout(connectYnc, config.reconnectMs);
-    return;
-  }
-  yncSocket.addEventListener('open', () => console.info(`UDトーク入力に接続しました: ${config.yncUrl}`));
-  yncSocket.addEventListener('message', ({ data }) => {
-    const text = String(data).trim();
-    if (!text) return;
-    obs.setText(text);
-    console.info(`字幕を更新: ${text}`);
-  });
-  yncSocket.addEventListener('close', () => {
-    console.warn(`UDトーク入力との接続が切れました。${config.reconnectMs}ms後に再接続します。`);
-    yncReconnectTimer = setTimeout(connectYnc, config.reconnectMs);
-  });
-  yncSocket.addEventListener('error', () => {});
-}
-connectYnc();
+const inputServer = startTextInputServer({
+  port: config.inputPort,
+  onText: (text) => { obs.setText(text); console.info(`字幕を更新: ${text}`); },
+});
 
 function shutdown() {
-  clearTimeout(yncReconnectTimer);
-  yncSocket?.close();
+  inputServer.close();
   console.info('終了しました。');
   process.exit(0);
 }

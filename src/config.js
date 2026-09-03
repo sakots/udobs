@@ -1,27 +1,27 @@
 const defaults = {
-  yncUrl: 'ws://127.0.0.1:11901/textonly',
   obsUrl: 'ws://127.0.0.1:4455',
   obsPassword: '',
   inputName: '',
   reconnectMs: 2000,
+  inputPort: 3030,
 };
 
 const optionToKey = {
-  '--ync-url': 'yncUrl',
   '--obs-url': 'obsUrl',
   '--obs-password': 'obsPassword',
   '--input-name': 'inputName',
   '--reconnect-ms': 'reconnectMs',
+  '--input-port': 'inputPort',
 };
 
 export function parseConfig(argv, env = process.env) {
   const config = {
     ...defaults,
-    yncUrl: env.YNC_URL || defaults.yncUrl,
     obsUrl: env.OBS_URL || defaults.obsUrl,
     obsPassword: env.OBS_PASSWORD || defaults.obsPassword,
     inputName: env.OBS_INPUT_NAME || defaults.inputName,
     reconnectMs: Number(env.RECONNECT_MS || defaults.reconnectMs),
+    inputPort: Number(env.INPUT_PORT || defaults.inputPort),
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -31,11 +31,10 @@ export function parseConfig(argv, env = process.env) {
     if (value === undefined || value.startsWith('--')) {
       throw new Error(`${argv[index]} には値が必要です。`);
     }
-    config[key] = key === 'reconnectMs' ? Number(value) : value.trim();
+    config[key] = ['reconnectMs', 'inputPort'].includes(key) ? Number(value) : value.trim();
     index += 1;
   }
 
-  config.yncUrl = config.yncUrl.trim();
   config.obsUrl = config.obsUrl.trim();
   config.inputName = config.inputName.trim();
 
@@ -45,7 +44,10 @@ export function parseConfig(argv, env = process.env) {
   if (!Number.isFinite(config.reconnectMs) || config.reconnectMs < 0) {
     throw new Error('reconnect-ms は0以上の数値にしてください。');
   }
-  for (const [name, value] of [['YNC URL', config.yncUrl], ['OBS URL', config.obsUrl]]) {
+  if (!Number.isInteger(config.inputPort) || config.inputPort < 1 || config.inputPort > 65535) {
+    throw new Error('input-port は1から65535の整数にしてください。');
+  }
+  for (const [name, value] of [['OBS URL', config.obsUrl]]) {
     try {
       const url = new URL(value);
       if (!['ws:', 'wss:'].includes(url.protocol)) throw new Error();
@@ -73,7 +75,7 @@ export const helpText = `UDトーク → OBS テキスト ブリッジ
   --input-name <名前>       更新するOBSテキストソース名（必須）
   --obs-password <パスワード>
   --obs-url <URL>           既定: ws://127.0.0.1:4455
-  --ync-url <URL>           既定: ws://127.0.0.1:11901/textonly
+  --input-port <ポート>     文字入力ページのポート。既定: 3030
   --reconnect-ms <ミリ秒>   既定: 2000
 
-同名の環境変数（OBS_INPUT_NAME, OBS_PASSWORD, OBS_URL, YNC_URL, RECONNECT_MS）も使えます。`;
+同名の環境変数（OBS_INPUT_NAME, OBS_PASSWORD, OBS_URL, INPUT_PORT, RECONNECT_MS）も使えます。`;
