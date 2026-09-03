@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseConfig } from '../src/config.js';
+import { parseConfig, toObsClientOptions } from '../src/config.js';
 import { createObsAuthentication } from '../src/obs.js';
 
 test('コマンドライン引数を設定へ反映する', () => {
@@ -20,4 +20,10 @@ test('OBSの認証値はv5仕様の二段階SHA-256になる', () => {
 
 test('テキストソース名を要求する', () => {
   assert.throws(() => parseConfig([], {}), /テキストソース名/);
+});
+
+test('OBS設定をクライアントが使うキー名へ変換する', () => {
+  const options = toObsClientOptions({ obsUrl: 'ws://example.test:4455', obsPassword: 'secret' });
+  assert.equal(options.url, 'ws://example.test:4455');
+  assert.equal(options.password, 'secret');
 });

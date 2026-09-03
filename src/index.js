@@ -1,4 +1,4 @@
-import { parseConfig, helpText } from './config.js';
+import { parseConfig, toObsClientOptions, helpText } from './config.js';
 import { ObsClient } from './obs.js';
 
 try {
@@ -24,7 +24,7 @@ try {
   process.exit(1);
 }
 
-const obs = new ObsClient({ ...config, url: config.obsUrl });
+const obs = new ObsClient(toObsClientOptions(config));
 obs.connect();
 
 let yncSocket;

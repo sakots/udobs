@@ -56,6 +56,14 @@ export function parseConfig(argv, env = process.env) {
   return config;
 }
 
+export function toObsClientOptions(config) {
+  return {
+    ...config,
+    url: config.obsUrl,
+    password: config.obsPassword,
+  };
+}
+
 export const helpText = `UDトーク → OBS テキスト ブリッジ
 
 使い方:

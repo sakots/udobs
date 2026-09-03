@@ -7,4 +7,5 @@ test('OBSクライアントは設定されたURLを保持する', () => {
     url: 'ws://127.0.0.1:4455', password: '', inputName: '字幕', reconnectMs: 0,
   });
   assert.equal(client.url, 'ws://127.0.0.1:4455');
+  assert.equal(client.password, '');
 });
