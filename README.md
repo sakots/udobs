@@ -17,19 +17,6 @@ UDトークの「ウェブで公開」ページから会話を取得し、OBSの
 2. OBSの「ツール」→「WebSocketサーバー設定」でサーバーを有効にし、ポート（通常 `4455`）とパスワードを確認します。
 3. OBSでテキストソースを作成します。例: `字幕`。
 4. `.env.example` をコピーして `.env` を作成します。
-
-Linux / macOS:
-
-```bash
-cp .env.example .env
-```
-
-PowerShell:
-
-```powershell
-Copy-Item .env.example .env
-```
-
 5. `.env` を開き、OBSの接続情報、テキストソース名、UDトークの公開URLを設定します。
 
 ```dotenv
