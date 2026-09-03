@@ -76,8 +76,13 @@ export class UdtalkWebClient {
       }
       this.#schedulePoll();
     } catch (error) {
-      this.log.warn(`UDトーク会話の取得に失敗しました: ${error.message}。再接続します。`);
-      this.#scheduleConnect();
+      if (/UDトークAPIの応答 status=(4|7)/.test(error.message)) {
+        this.log.warn(`UDトーク会話のセッションが無効です: ${error.message}。再接続します。`);
+        this.#scheduleConnect();
+      } else {
+        this.log.warn(`UDトーク会話の取得に失敗しました: ${error.message}。同じ位置から再試行します。`);
+        this.#schedulePoll();
+      }
     }
   }
 
