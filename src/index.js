@@ -24,7 +24,7 @@ try {
   process.exit(1);
 }
 
-const obs = new ObsClient(config);
+const obs = new ObsClient({ ...config, url: config.obsUrl });
 obs.connect();
 
 let yncSocket;
