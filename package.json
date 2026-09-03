@@ -2,7 +2,7 @@
   "name": "udtalk-obs-bridge",
   "version": "1.0.0",
   "private": true,
-  "description": "UDトーク（ゆかコネNEO経由）の発話をOBSテキストへ転送する最小ブリッジ",
+  "description": "UDトークのWeb公開会話をOBSテキストへ転送する最小ブリッジ",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
