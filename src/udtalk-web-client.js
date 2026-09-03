@@ -14,6 +14,7 @@ export class UdtalkWebClient {
   #timer;
   #session;
   #lastTextKey = '';
+  #consecutivePollFailures = 0;
 
   constructor({ url, pollMs, onText, log = console }) {
     this.url = url;
@@ -74,13 +75,17 @@ export class UdtalkWebClient {
       for (const group of data.messages || []) {
         for (const message of group) this.#handleMessage(message);
       }
+      this.#consecutivePollFailures = 0;
       this.#schedulePoll();
     } catch (error) {
       if (/UDトークAPIの応答 status=(4|7)/.test(error.message)) {
         this.log.warn(`UDトーク会話のセッションが無効です: ${error.message}。再接続します。`);
         this.#scheduleConnect();
       } else {
-        this.log.warn(`UDトーク会話の取得に失敗しました: ${error.message}。同じ位置から再試行します。`);
+        this.#consecutivePollFailures += 1;
+        if (this.#consecutivePollFailures >= 3) {
+          this.log.warn(`UDトーク会話の取得に${this.#consecutivePollFailures}回連続で失敗しました: ${error.message}。同じ位置から再試行します。`);
+        }
         this.#schedulePoll();
       }
     }
