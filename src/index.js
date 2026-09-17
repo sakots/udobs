@@ -36,10 +36,15 @@ const udtalk = new UdtalkWebClient({
   pollMs: config.pollMs,
   onText: (text) => {
     const caption = wrapText(text, config.maxCharsPerLine);
+    if (config.previousInputName) {
+      obs.setTextForInput(config.previousInputName, previousCaption);
+    }
     obs.setText(caption);
+    previousCaption = caption;
     console.info(`字幕を更新: ${caption}`);
   },
 });
+let previousCaption = '';
 udtalk.start();
 
 function shutdown() {

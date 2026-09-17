@@ -6,10 +6,12 @@ import { createObsAuthentication } from '../src/obs.js';
 test('コマンドライン引数を設定へ反映する', () => {
   const config = parseConfig([
     '--input-name', '字幕', '--obs-url', 'ws://localhost:4455', '--reconnect-ms', '500',
+    '--previous-input-name', '字幕_ひとつ前',
     '--udtalk-url', 'https://live.udtalk.jp/808d4ebbbea1b85b855b0accd09562ccb531a9b52c8079c95c7295cd3c7cb265', '--poll-ms', '500',
   ], {});
   assert.equal(config.inputName, '字幕');
   assert.equal(config.reconnectMs, 500);
+  assert.equal(config.previousInputName, '字幕_ひとつ前');
   assert.equal(config.pollMs, 500);
 });
 

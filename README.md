@@ -28,6 +28,8 @@ UDトークのWeb公開 → このアプリ → OBS WebSocket → OBSテキス�
 ```dotenv
 OBS_PASSWORD="OBSで設定したパスワード"
 OBS_INPUT_NAME=字幕
+# ひとつ前の発話を表示するOBSテキストソース名（不要なら空欄）
+OBS_PREVIOUS_INPUT_NAME=字幕_ひとつ前
 OBS_URL="ws://127.0.0.1:4455"
 UDTALK_PUBLIC_URL="https://live.udtalk.jp/ここに64文字のID"
 POLL_MS=500
@@ -35,6 +37,17 @@ MAX_CHARS_PER_LINE=24
 ```
 
 `OBS_PASSWORD`、`OBS_INPUT_NAME`、`UDTALK_PUBLIC_URL` は必須です。パスワードは必ず引用符で囲んでください。`#` や空白を含んでも正しく読み込めます。
+
+### ひとつ前の発話も表示する
+
+OBSにテキストソースを2つ作成し、最新用を `字幕`、ひとつ前用を `字幕_ひとつ前` のように別名にします。`.env` の `OBS_PREVIOUS_INPUT_NAME` へひとつ前用のソース名を指定すると、新しい発話が来るたびに、直前の発話をそのソースへ送ります。
+
+```dotenv
+OBS_INPUT_NAME=字幕
+OBS_PREVIOUS_INPUT_NAME=字幕_ひとつ前
+```
+
+最初の発話では、ひとつ前用のソースは空欄です。
 
 ## 起動
 
@@ -67,6 +80,10 @@ npm test
 ```
 
 ## 更新履歴
+
+### [2026/09/17] v0.2.0
+
+- 一つ前の字幕機能を追加
 
 ### [2026/09/04] v0.1.0
 

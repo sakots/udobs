@@ -2,6 +2,7 @@ const defaults = {
   obsUrl: 'ws://127.0.0.1:4455',
   obsPassword: '',
   inputName: '',
+  previousInputName: '',
   reconnectMs: 2000,
   udtalkPublicUrl: '',
   pollMs: 1000,
@@ -12,6 +13,7 @@ const optionToKey = {
   '--obs-url': 'obsUrl',
   '--obs-password': 'obsPassword',
   '--input-name': 'inputName',
+  '--previous-input-name': 'previousInputName',
   '--reconnect-ms': 'reconnectMs',
   '--udtalk-url': 'udtalkPublicUrl',
   '--poll-ms': 'pollMs',
@@ -24,6 +26,7 @@ export function parseConfig(argv, env = process.env) {
     obsUrl: env.OBS_URL || defaults.obsUrl,
     obsPassword: env.OBS_PASSWORD || defaults.obsPassword,
     inputName: env.OBS_INPUT_NAME || defaults.inputName,
+    previousInputName: env.OBS_PREVIOUS_INPUT_NAME || defaults.previousInputName,
     reconnectMs: Number(env.RECONNECT_MS || defaults.reconnectMs),
     udtalkPublicUrl: env.UDTALK_PUBLIC_URL || defaults.udtalkPublicUrl,
     pollMs: Number(env.POLL_MS || defaults.pollMs),
@@ -43,10 +46,14 @@ export function parseConfig(argv, env = process.env) {
 
   config.obsUrl = config.obsUrl.trim();
   config.inputName = config.inputName.trim();
+  config.previousInputName = config.previousInputName.trim();
   config.udtalkPublicUrl = config.udtalkPublicUrl.trim();
 
   if (!config.inputName) {
     throw new Error('OBSのテキストソース名を --input-name または OBS_INPUT_NAME で指定してください。');
+  }
+  if (config.previousInputName === config.inputName) {
+    throw new Error('OBS_PREVIOUS_INPUT_NAME は OBS_INPUT_NAME と異なるテキストソース名にしてください。');
   }
   if (!Number.isFinite(config.reconnectMs) || config.reconnectMs < 0) {
     throw new Error('reconnect-ms は0以上の数値にしてください。');
@@ -92,6 +99,7 @@ export const helpText = `UDトーク → OBS テキスト ブリッジ
 
 オプション:
   --input-name <名前>       更新するOBSテキストソース名（必須）
+  --previous-input-name <名前>  ひとつ前の発話を表示するOBSテキストソース名
   --obs-password <パスワード>
   --obs-url <URL>           既定: ws://127.0.0.1:4455
   --udtalk-url <URL>        UDトークのWeb公開URL（必須）
@@ -99,4 +107,4 @@ export const helpText = `UDトーク → OBS テキスト ブリッジ
   --max-chars-per-line <数>  字幕を改行する文字数。既定: 24
   --reconnect-ms <ミリ秒>   既定: 2000
 
-同名の環境変数（OBS_INPUT_NAME, OBS_PASSWORD, OBS_URL, UDTALK_PUBLIC_URL, POLL_MS, MAX_CHARS_PER_LINE, RECONNECT_MS）も使えます。`;
+同名の環境変数（OBS_INPUT_NAME, OBS_PREVIOUS_INPUT_NAME, OBS_PASSWORD, OBS_URL, UDTALK_PUBLIC_URL, POLL_MS, MAX_CHARS_PER_LINE, RECONNECT_MS）も使えます。`;

@@ -12,7 +12,7 @@ export class ObsClient {
   #socket;
   #ready = false;
   #sequence = 0;
-  #pendingText;
+  #pendingTexts = new Map();
   #reconnectTimer;
 
   constructor({ url, password, inputName, reconnectMs, log = console }) {
@@ -44,8 +44,13 @@ export class ObsClient {
   }
 
   setText(text) {
-    this.#pendingText = text;
-    this.#flushText();
+    this.setTextForInput(this.inputName, text);
+  }
+
+  setTextForInput(inputName, text) {
+    if (!inputName) return;
+    this.#pendingTexts.set(inputName, text);
+    this.#flushTexts();
   }
 
   #handleMessage(raw) {
@@ -66,24 +71,25 @@ export class ObsClient {
     } else if (message.op === 2) {
       this.#ready = true;
       this.log.info('OBS WebSocketの認証が完了しました。');
-      this.#flushText();
+      this.#flushTexts();
     } else if (message.op === 7 && !message.d.requestStatus?.result) {
       this.log.error(`OBS更新エラー: ${message.d.requestStatus?.comment || message.d.requestStatus?.code}`);
     }
   }
 
-  #flushText() {
-    if (!this.#ready || this.#pendingText === undefined) return;
-    const text = this.#pendingText;
-    this.#pendingText = undefined;
-    this.#send({
-      op: 6,
-      d: {
-        requestType: 'SetInputSettings',
-        requestId: `udtalk-${++this.#sequence}`,
-        requestData: { inputName: this.inputName, inputSettings: { text }, overlay: true },
-      },
-    });
+  #flushTexts() {
+    if (!this.#ready) return;
+    for (const [inputName, text] of this.#pendingTexts) {
+      this.#pendingTexts.delete(inputName);
+      this.#send({
+        op: 6,
+        d: {
+          requestType: 'SetInputSettings',
+          requestId: `udtalk-${++this.#sequence}`,
+          requestData: { inputName, inputSettings: { text }, overlay: true },
+        },
+      });
+    }
   }
 
   #send(message) {
