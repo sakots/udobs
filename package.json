@@ -5,10 +5,15 @@
   "description": "UDトークのWeb公開会話をOBSテキストへ転送する最小ブリッジ",
   "type": "module",
   "scripts": {
-    "start": "node src/index.js",
-    "test": "node --test"
+    "build": "tsc",
+    "start": "npm run build && node dist/src/index.js",
+    "test": "npm run build && node --test dist/test/*.js"
   },
   "engines": {
     "node": ">=22"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.3",
+    "typescript": "^7.0.2"
   }
 }
