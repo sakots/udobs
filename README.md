@@ -8,7 +8,7 @@ UDトークのWeb公開 → このアプリ → OBS WebSocket → OBSテキス�
 
 ゆかりねっとコネクターNEO、UDトーク文字入力、ブラウザ操作は必要ありません。
 
-実装はTypeScriptです。`npm start` と `npm test` は実行前に `dist/` へコンパイルします。
+実装はTypeScriptです。`pnpm start` と `pnpm test` は実行前に `dist/` へコンパイルします。
 
 公開ページが会話表示に使う公式のWeb APIを定期取得し、**新しく確定した発話だけ**をOBSへ転送します。過去ログは起動時に表示しません。
 
@@ -54,7 +54,7 @@ OBS_PREVIOUS_INPUT_NAME=字幕_ひとつ前
 ## 起動
 
 ```bash
-npm start
+pnpm start
 ```
 
 次の2行が表示されれば接続完了です。
@@ -78,10 +78,14 @@ UDトークWeb公開に接続しました。新しい確定発話をOBSへ転送
 ## 動作確認
 
 ```bash
-npm test
+pnpm test
 ```
 
 ## 更新履歴
+
+### [2026/09/19] v0.2.1
+
+- npmからpnpmにした
 
 ### [2026/09/17] v0.2.0
 

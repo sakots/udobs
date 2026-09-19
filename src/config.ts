@@ -76,7 +76,7 @@ export function toObsClientOptions(config: Config): ObsClientOptions {
 export const helpText = `UDトーク → OBS テキスト ブリッジ
 
 使い方:
-  npm start -- --input-name 字幕
+  pnpm start -- --input-name 字幕
 
 オプション:
   --input-name <名前>       更新するOBSテキストソース名（必須）

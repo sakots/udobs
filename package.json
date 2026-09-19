@@ -4,10 +4,11 @@
   "private": true,
   "description": "UDトークのWeb公開会話をOBSテキストへ転送する最小ブリッジ",
   "type": "module",
+  "packageManager": "pnpm@11.15.1",
   "scripts": {
     "build": "tsc",
-    "start": "npm run build && node dist/src/index.js",
-    "test": "npm run build && node --test dist/test/*.js"
+    "start": "pnpm run build && node dist/src/index.js",
+    "test": "pnpm run build && node --test dist/test/*.js"
   },
   "engines": {
     "node": ">=22"
