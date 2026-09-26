@@ -36,6 +36,17 @@ const udtalk = new UdtalkWebClient({
 obs.connect();
 void udtalk.start();
 
-function shutdown(): void { udtalk.stop(); console.info('終了しました。'); process.exit(0); }
-process.once('SIGINT', shutdown);
-process.once('SIGTERM', shutdown);
+let shuttingDown = false;
+function shutdown(): void {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.info('終了処理を開始します。');
+  udtalk.stop();
+  obs.stop();
+  process.exitCode = 0;
+  const forceExit = setTimeout(() => process.exit(0), 500);
+  forceExit.unref();
+}
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
+process.on('SIGBREAK', shutdown);

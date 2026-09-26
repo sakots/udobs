@@ -15,6 +15,7 @@ export class ObsClient {
   #sequence = 0;
   #pendingTexts = new Map<string, string>();
   #reconnectTimer?: NodeJS.Timeout;
+  #stopped = false;
   readonly url: string;
   readonly password: string;
   readonly inputName: string;
@@ -26,6 +27,7 @@ export class ObsClient {
   }
 
   connect(): void {
+    if (this.#stopped) return;
     clearTimeout(this.#reconnectTimer);
     try { this.#socket = new WebSocket(this.url); }
     catch (error) {
@@ -37,10 +39,19 @@ export class ObsClient {
     this.#socket.addEventListener('message', ({ data }: MessageEvent) => this.#handleMessage(data));
     this.#socket.addEventListener('close', ({ code, reason }: CloseEvent) => {
       this.#ready = false;
+      if (this.#stopped) return;
       this.log.warn(`OBSとの接続が切れました（code: ${code}）。${reason ? ` 理由: ${reason}` : ''} ${this.reconnectMs}ms後に再接続します。`);
       this.#reconnectTimer = setTimeout(() => this.connect(), this.reconnectMs);
     });
     this.#socket.addEventListener('error', () => {});
+  }
+
+  stop(): void {
+    this.#stopped = true;
+    this.#ready = false;
+    clearTimeout(this.#reconnectTimer);
+    this.#socket?.close();
+    this.#socket = undefined;
   }
 
   setText(text: string): void { this.setTextForInput(this.inputName, text); }
