@@ -13,7 +13,7 @@ export function parsePublicUrl(value: string): { viewerUrl: string; publicId: st
 }
 
 export class UdtalkWebClient {
-  #stopped = false; #timer?: NodeJS.Timeout; #abortController?: AbortController; #session?: Session; #lastTextKey = ''; #consecutivePollFailures = 0; #reportedPollFailure = false;
+  #stopped = false; #timer?: NodeJS.Timeout; #abortController?: AbortController; #session?: Session; #seenTextKeys = new Set<string>(); #consecutivePollFailures = 0; #reportedPollFailure = false;
   readonly url: string; readonly pollMs: number; readonly onText: (text: string) => void; readonly log: Logger;
   constructor({ url, pollMs, onText, log = console }: { url: string; pollMs: number; onText: (text: string) => void; log?: Logger }) {
     this.url = url; this.pollMs = pollMs; this.onText = onText; this.log = log;
@@ -58,7 +58,10 @@ export class UdtalkWebClient {
     let meta: Meta; try { meta = JSON.parse(message.meta) as Meta; } catch { return; }
     if (meta.phase !== 'finalized' || !meta.text?.trim()) return;
     const text = meta.text.trim(); const key = `${meta.utteranceIdentifier}:${text}`;
-    if (key === this.#lastTextKey) return; this.#lastTextKey = key; this.onText(text);
+    if (this.#seenTextKeys.has(key)) return;
+    this.#seenTextKeys.add(key);
+    if (this.#seenTextKeys.size > 1_000) this.#seenTextKeys.delete(this.#seenTextKeys.values().next().value as string);
+    this.onText(text);
   }
   async #post(path: string, body: Record<string, string | number>, acceptedStatuses = [1]): Promise<ApiResponse> {
     this.#abortController = new AbortController();

@@ -27,6 +27,7 @@ const udtalk = new UdtalkWebClient({
   pollMs: config.pollMs,
   onText: (text) => {
     const caption = wrapText(text, config.maxCharsPerLine);
+    if (caption === previousCaption) return;
     if (config.previousInputName) obs.setTextForInput(config.previousInputName, previousCaption);
     obs.setText(caption);
     previousCaption = caption;
