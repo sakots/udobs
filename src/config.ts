@@ -9,9 +9,11 @@ export interface Config {
   maxCharsPerLine: number;
 }
 
-export interface ObsClientOptions extends Config {
+export interface ObsClientOptions {
   url: string;
   password: string;
+  inputName: string;
+  reconnectMs: number;
 }
 
 const defaults: Config = {

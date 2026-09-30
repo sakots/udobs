@@ -23,7 +23,9 @@ export class UdtalkWebClient {
   async #connect(): Promise<void> {
     try {
       const { viewerUrl, publicId } = parsePublicUrl(this.url);
-      const html = await (await requireOk(fetch(viewerUrl))).text();
+      this.#abortController = new AbortController();
+      const html = await (await requireOk(fetch(viewerUrl, { signal: AbortSignal.any([this.#abortController.signal, AbortSignal.timeout(15000)]) }))).text();
+      if (this.#stopped) return;
       const token = html.match(/token-txt="[^"]*&quot;hash&quot;:&quot;([0-9a-z]{64})/)?.[1];
       if (!token) throw new Error('公開ページの会話トークンを取得できませんでした。パスコード付きの公開には未対応です。');
       const initialize = await this.#post(`web/push/initialize/${publicId}`, { t: token });
@@ -33,7 +35,11 @@ export class UdtalkWebClient {
       await this.#post(`web/push/signWebTalk/${publicId}`, { t: token, u: initialize.userid, k: keyData.key });
       const current = await this.#post(`web/pull/webTalkCurrent/${publicId}`, { t: token, u: initialize.userid, k: keyData.key });
       if (current.number === undefined || current.current === undefined) throw new Error('UDトークAPIの会話位置を取得できませんでした。');
-      this.#session = { publicId, token, user: initialize.userid, key: keyData.key, number: current.number, current: current.current };
+      const previous = this.#session;
+      const resume = previous?.token === token && previous.number <= current.number && previous.current <= current.current;
+      this.#session = { publicId, token, user: initialize.userid, key: keyData.key,
+        number: resume ? previous.number : current.number,
+        current: resume ? previous.current : current.current };
       this.log.info('UDトークWeb公開に接続しました。新しい確定発話をOBSへ転送します。'); this.#schedulePoll(0);
     } catch (error) { this.log.warn(`UDトークWeb公開への接続に失敗しました: ${messageOf(error)}。${this.pollMs}ms後に再試行します。`); this.#scheduleConnect(); }
   }
@@ -43,8 +49,9 @@ export class UdtalkWebClient {
     try {
       const s = this.#session; if (!s) throw new Error('UDトークの接続情報がありません。');
       const data = await this.#post(`web/pull/webTalkMessage/${s.publicId}`, { u: s.user, t: s.token, k: s.key, l: s.number, c: s.current }, [1, 5]);
-      s.number = data.number ?? s.number; s.current = data.current ?? s.current;
+      if (this.#stopped) return;
       for (const group of data.messages || []) for (const message of group) this.#handleMessage(message);
+      s.number = data.number ?? s.number; s.current = data.current ?? s.current;
       if (this.#reportedPollFailure) this.log.info('UDトーク会話の取得が復旧しました。');
       this.#consecutivePollFailures = 0; this.#reportedPollFailure = false; this.#schedulePoll();
     } catch (error) {
@@ -59,14 +66,14 @@ export class UdtalkWebClient {
     if (meta.phase !== 'finalized' || !meta.text?.trim()) return;
     const text = meta.text.trim(); const key = `${meta.utteranceIdentifier}:${text}`;
     if (this.#seenTextKeys.has(key)) return;
+    this.onText(text);
     this.#seenTextKeys.add(key);
     if (this.#seenTextKeys.size > 1_000) this.#seenTextKeys.delete(this.#seenTextKeys.values().next().value as string);
-    this.onText(text);
   }
   async #post(path: string, body: Record<string, string | number>, acceptedStatuses = [1]): Promise<ApiResponse> {
     this.#abortController = new AbortController();
     const response = await requireOk(fetch(`${appBaseUrl}/${path}`, {
-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: this.#abortController.signal,
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.any([this.#abortController.signal, AbortSignal.timeout(15000)]),
     }));
     const data = await response.json() as ApiResponse;
     if (!acceptedStatuses.includes(data.status)) throw new Error(`UDトークAPIの応答 status=${data.status}`);

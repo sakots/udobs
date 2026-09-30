@@ -14,6 +14,8 @@ export class ObsClient {
   #ready = false;
   #sequence = 0;
   #pendingTexts = new Map<string, string>();
+  #desiredTexts = new Map<string, string>();
+  #requests = new Map<string, { inputName: string; text: string; timer: NodeJS.Timeout }>();
   #reconnectTimer?: NodeJS.Timeout;
   #stopped = false;
   readonly url: string;
@@ -39,6 +41,7 @@ export class ObsClient {
     this.#socket.addEventListener('message', ({ data }: MessageEvent) => this.#handleMessage(data));
     this.#socket.addEventListener('close', ({ code, reason }: CloseEvent) => {
       this.#ready = false;
+      this.#clearRequests();
       if (this.#stopped) return;
       this.log.warn(`OBSとの接続が切れました（code: ${code}）。${reason ? ` 理由: ${reason}` : ''} ${this.reconnectMs}ms後に再接続します。`);
       this.#reconnectTimer = setTimeout(() => this.connect(), this.reconnectMs);
@@ -50,6 +53,7 @@ export class ObsClient {
     this.#stopped = true;
     this.#ready = false;
     clearTimeout(this.#reconnectTimer);
+    this.#clearRequests();
     this.#socket?.close();
     this.#socket = undefined;
   }
@@ -57,6 +61,7 @@ export class ObsClient {
   setText(text: string): void { this.setTextForInput(this.inputName, text); }
   setTextForInput(inputName: string, text: string): void {
     if (!inputName) return;
+    this.#desiredTexts.set(inputName, text);
     this.#pendingTexts.set(inputName, text);
     this.#flushTexts();
   }
@@ -74,20 +79,43 @@ export class ObsClient {
       this.#send({ op: 1, d: identify });
     } else if (message.op === 2) {
       this.#ready = true;
+      this.#pendingTexts = new Map(this.#desiredTexts);
       this.log.info('OBS WebSocketの認証が完了しました。');
       this.#flushTexts();
     } else if (message.op === 7) {
+      const requestId = String(message.d.requestId);
+      const request = this.#requests.get(requestId);
+      if (!request) return;
+      clearTimeout(request.timer);
+      this.#requests.delete(requestId);
       const status = message.d.requestStatus as { result?: boolean; comment?: string; code?: number } | undefined;
-      if (!status?.result) this.log.error(`OBS更新エラー: ${status?.comment || status?.code}`);
+      if (!status?.result) {
+        this.log.error(`OBS更新エラー（${request.inputName}）: ${status?.comment || status?.code}`);
+      }
+      this.#flushTexts();
     }
   }
 
   #flushTexts(): void {
-    if (!this.#ready) return;
+    if (!this.#ready || this.#socket?.readyState !== WebSocket.OPEN) return;
     for (const [inputName, text] of this.#pendingTexts) {
+      if ([...this.#requests.values()].some((request) => request.inputName === inputName)) continue;
+      const requestId = `udtalk-${++this.#sequence}`;
+      const timer = setTimeout(() => {
+        this.log.warn(`OBS更新の応答がありません（${inputName}）。再接続して最新字幕を再送します。`);
+        this.#ready = false;
+        this.#clearRequests();
+        this.#socket?.close();
+      }, 5000);
+      this.#requests.set(requestId, { inputName, text, timer });
       this.#pendingTexts.delete(inputName);
-      this.#send({ op: 6, d: { requestType: 'SetInputSettings', requestId: `udtalk-${++this.#sequence}`, requestData: { inputName, inputSettings: { text }, overlay: true } } });
+      this.#send({ op: 6, d: { requestType: 'SetInputSettings', requestId, requestData: { inputName, inputSettings: { text }, overlay: true } } });
     }
+  }
+
+  #clearRequests(): void {
+    for (const request of this.#requests.values()) clearTimeout(request.timer);
+    this.#requests.clear();
   }
 
   #send(message: ObsMessage): void {
