@@ -15,7 +15,7 @@ export class ObsClient {
   #sequence = 0;
   #pendingTexts = new Map<string, string>();
   #desiredTexts = new Map<string, string>();
-  #requests = new Map<string, { inputName: string; text: string; timer: NodeJS.Timeout }>();
+  #requests = new Map<string, { inputNames: string[]; timer: NodeJS.Timeout }>();
   #reconnectTimer?: NodeJS.Timeout;
   #stopped = false;
   readonly url: string;
@@ -59,6 +59,14 @@ export class ObsClient {
   }
 
   setText(text: string): void { this.setTextForInput(this.inputName, text); }
+  setCaptionPair(current: string, previousInputName: string, previous: string): void {
+    for (const [name, text] of [[this.inputName, current], [previousInputName, previous]]) {
+      if (!name) continue;
+      this.#desiredTexts.set(name, text);
+      this.#pendingTexts.set(name, text);
+    }
+    this.#flushTexts();
+  }
   setTextForInput(inputName: string, text: string): void {
     if (!inputName) return;
     this.#desiredTexts.set(inputName, text);
@@ -82,35 +90,37 @@ export class ObsClient {
       this.#pendingTexts = new Map(this.#desiredTexts);
       this.log.info('OBS WebSocketの認証が完了しました。');
       this.#flushTexts();
-    } else if (message.op === 7) {
+    } else if (message.op === 7 || message.op === 9) {
       const requestId = String(message.d.requestId);
       const request = this.#requests.get(requestId);
       if (!request) return;
       clearTimeout(request.timer);
       this.#requests.delete(requestId);
-      const status = message.d.requestStatus as { result?: boolean; comment?: string; code?: number } | undefined;
-      if (!status?.result) {
-        this.log.error(`OBS更新エラー（${request.inputName}）: ${status?.comment || status?.code}`);
+      const results = message.op === 9 ? message.d.results as { requestStatus?: { result?: boolean; comment?: string; code?: number } }[] : [message.d];
+      for (const [index, result] of (results || []).entries()) {
+        const status = result.requestStatus as { result?: boolean; comment?: string; code?: number } | undefined;
+        if (!status?.result) this.log.error(`OBS更新エラー（${request.inputNames[index]}）: ${status?.comment || status?.code}`);
       }
       this.#flushTexts();
     }
   }
 
   #flushTexts(): void {
-    if (!this.#ready || this.#socket?.readyState !== WebSocket.OPEN) return;
-    for (const [inputName, text] of this.#pendingTexts) {
-      if ([...this.#requests.values()].some((request) => request.inputName === inputName)) continue;
-      const requestId = `udtalk-${++this.#sequence}`;
-      const timer = setTimeout(() => {
-        this.log.warn(`OBS更新の応答がありません（${inputName}）。再接続して最新字幕を再送します。`);
-        this.#ready = false;
-        this.#clearRequests();
-        this.#socket?.close();
-      }, 5000);
-      this.#requests.set(requestId, { inputName, text, timer });
-      this.#pendingTexts.delete(inputName);
-      this.#send({ op: 6, d: { requestType: 'SetInputSettings', requestId, requestData: { inputName, inputSettings: { text }, overlay: true } } });
-    }
+    if (!this.#ready || this.#socket?.readyState !== WebSocket.OPEN || this.#requests.size || !this.#pendingTexts.size) return;
+    const texts = [...this.#pendingTexts];
+    const requestId = `udtalk-${++this.#sequence}`;
+    const timer = setTimeout(() => {
+      this.log.warn('OBS更新の応答がありません。再接続して最新字幕を再送します。');
+      this.#ready = false;
+      this.#clearRequests();
+      this.#socket?.close();
+    }, 5000);
+    this.#requests.set(requestId, { inputNames: texts.map(([name]) => name), timer });
+    this.#pendingTexts.clear();
+    const requests = texts.map(([inputName, text]) => ({ requestType: 'SetInputSettings', requestData: { inputName, inputSettings: { text }, overlay: true } }));
+    this.#send(requests.length === 1
+      ? { op: 6, d: { ...requests[0], requestId } }
+      : { op: 8, d: { requestId, executionType: 1, haltOnFailure: false, requests } });
   }
 
   #clearRequests(): void {

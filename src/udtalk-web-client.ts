@@ -1,9 +1,10 @@
 const appBaseUrl = 'https://app.udtalk.jp';
+import type { Utterance } from './caption-history.js';
 interface Logger { info(message: string): void; warn(message: string): void; }
 interface Session { publicId: string; token: string; user: string; key: string; number: number; current: number; }
 interface ApiResponse { status: number; userid?: string; key?: string; number?: number; current?: number; messages?: UdtalkMessage[][]; }
 interface UdtalkMessage { qualify: number; meta?: string; }
-interface Meta { phase?: string; text?: string; utteranceIdentifier?: string; }
+interface Meta { phase?: string; text?: string; utteranceIdentifier?: string; timestamp?: string | number; }
 
 export function parsePublicUrl(value: string): { viewerUrl: string; publicId: string } {
   const url = new URL(value);
@@ -14,8 +15,8 @@ export function parsePublicUrl(value: string): { viewerUrl: string; publicId: st
 
 export class UdtalkWebClient {
   #stopped = false; #timer?: NodeJS.Timeout; #abortController?: AbortController; #session?: Session; #seenTextKeys = new Set<string>(); #consecutivePollFailures = 0; #reportedPollFailure = false;
-  readonly url: string; readonly pollMs: number; readonly onText: (text: string) => void; readonly log: Logger;
-  constructor({ url, pollMs, onText, log = console }: { url: string; pollMs: number; onText: (text: string) => void; log?: Logger }) {
+  readonly url: string; readonly pollMs: number; readonly onText: (text: string, utterance: Utterance) => void; readonly log: Logger;
+  constructor({ url, pollMs, onText, log = console }: { url: string; pollMs: number; onText: (text: string, utterance: Utterance) => void; log?: Logger }) {
     this.url = url; this.pollMs = pollMs; this.onText = onText; this.log = log;
   }
   async start(): Promise<void> { this.#stopped = false; await this.#connect(); }
@@ -66,7 +67,9 @@ export class UdtalkWebClient {
     if (meta.phase !== 'finalized' || !meta.text?.trim()) return;
     const text = meta.text.trim(); const key = `${meta.utteranceIdentifier}:${text}`;
     if (this.#seenTextKeys.has(key)) return;
-    this.onText(text);
+    const timestamp = meta.timestamp === undefined ? undefined : Number(meta.timestamp);
+    this.onText(text, { id: meta.utteranceIdentifier || key,
+      timestamp: timestamp !== undefined && Number.isFinite(timestamp) ? timestamp : undefined });
     this.#seenTextKeys.add(key);
     if (this.#seenTextKeys.size > 1_000) this.#seenTextKeys.delete(this.#seenTextKeys.values().next().value as string);
   }

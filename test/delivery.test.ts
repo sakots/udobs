@@ -10,7 +10,7 @@ test('OBS切断中の最新字幕と前字幕を再認証後に再送する', as
     static OPEN = 1;
     static instances: Socket[] = [];
     readyState = 1;
-    sent: { op: number; d: { requestId: string; requestData?: { inputName: string; inputSettings: { text: string } } } }[] = [];
+    sent: { op: number; d: { requestId: string; requests?: { requestData: { inputName: string; inputSettings: { text: string } } }[]; requestData?: { inputName: string; inputSettings: { text: string } } } }[] = [];
     constructor() { super(); Socket.instances.push(this); }
     send(raw: string) { this.sent.push(JSON.parse(raw)); }
     close() { this.readyState = 3; this.dispatchEvent(new Event('close')); }
@@ -31,14 +31,20 @@ test('OBS切断中の最新字幕と前字幕を再認証後に再送する', as
   await new Promise((resolve) => setTimeout(resolve, 10));
   const second = Socket.instances[1];
   second.receive({ op: 2, d: {} });
-  assert.deepEqual(second.sent.map((m) => m.d.requestData), [
+  assert.equal(second.sent[0].op, 8);
+  assert.deepEqual(second.sent[0].d.requests?.map((m) => m.requestData), [
     { inputName: '字幕', inputSettings: { text: '最新' }, overlay: true },
     { inputName: '前字幕', inputSettings: { text: 'ひとつ前' }, overlay: true },
   ]);
   client.setText('次');
-  assert.equal(second.sent.length, 2); // 同じソースは応答を待って順序を守る
-  second.receive({ op: 7, d: { requestId: second.sent[0].d.requestId, requestStatus: { result: true } } });
-  assert.equal(second.sent[2].d.requestData?.inputSettings.text, '次');
+  assert.equal(second.sent.length, 1); // ペア全体の応答を待つ
+  second.receive({ op: 9, d: { requestId: second.sent[0].d.requestId, results: [{ requestStatus: { result: true } }, { requestStatus: { result: true } }] } });
+  assert.equal(second.sent[1].d.requestData?.inputSettings.text, '次');
+  client.setCaptionPair('C', '前字幕', 'B');
+  client.setCaptionPair('D', '前字幕', 'C');
+  assert.equal(second.sent.length, 2);
+  second.receive({ op: 7, d: { requestId: second.sent[1].d.requestId, requestStatus: { result: true } } });
+  assert.deepEqual(second.sent[2].d.requests?.map((m) => m.requestData.inputSettings.text), ['D', 'C']);
 });
 
 test('UDトーク再接続時に未取得の発話位置を飛ばさない', async (t) => {
@@ -66,7 +72,10 @@ test('UDトーク再接続時に未取得の発話位置を飛ばさない', asy
   });
   const received: string[] = [];
   const client = new UdtalkWebClient({ url: `https://live.udtalk.jp/${id}`, pollMs: 1, log: logger,
-    onText(text) { received.push(text); client.stop(); complete(); } });
+    onText(text, utterance) {
+      assert.equal(utterance.id, 'missed');
+      received.push(text); client.stop(); complete();
+    } });
   t.after(() => client.stop());
   await client.start();
   await Promise.race([finished, new Promise<void>((_, reject) => { const timer = setTimeout(() => reject(new Error('取得が完了しません')), 1000); timer.unref(); })]);

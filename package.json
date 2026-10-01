@@ -1,6 +1,6 @@
 {
   "name": "udtalk-obs-bridge",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "private": true,
   "description": "UDトークのWeb公開会話をOBSテキストへ転送する最小ブリッジ",
   "type": "module",

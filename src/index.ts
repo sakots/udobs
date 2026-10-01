@@ -3,6 +3,7 @@ import type { Config } from './config.js';
 import { ObsClient } from './obs.js';
 import { wrapText } from './text-wrap.js';
 import { UdtalkWebClient } from './udtalk-web-client.js';
+import { CaptionHistory } from './caption-history.js';
 
 try { process.loadEnvFile('.env'); }
 catch (error: unknown) {
@@ -21,17 +22,16 @@ catch (error: unknown) {
 }
 
 const obs = new ObsClient(toObsClientOptions(config));
-let previousCaption = '';
+const history = new CaptionHistory();
 const udtalk = new UdtalkWebClient({
   url: config.udtalkPublicUrl,
   pollMs: config.pollMs,
-  onText: (text) => {
+  onText: (text, utterance) => {
     const caption = wrapText(text, config.maxCharsPerLine);
-    if (caption === previousCaption) return;
-    if (config.previousInputName) obs.setTextForInput(config.previousInputName, previousCaption);
-    obs.setText(caption);
-    previousCaption = caption;
-    console.info(`字幕を更新: ${caption}`);
+    const pair = history.update(caption, utterance);
+    if (!pair) return;
+    obs.setCaptionPair(pair.current, config.previousInputName, pair.previous);
+    console.info(`字幕を更新: ${pair.current}`);
   },
 });
 obs.connect();
