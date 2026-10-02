@@ -4,6 +4,13 @@ import { ObsClient } from './obs.js';
 import { wrapText } from './text-wrap.js';
 import { UdtalkWebClient } from './udtalk-web-client.js';
 import { CaptionHistory } from './caption-history.js';
+import { startLogging } from './logging.js';
+
+try { console.info(`ログ保存先: ${startLogging()}`); }
+catch (error: unknown) {
+  console.error(`ログ保存を開始できません: ${error instanceof Error ? error.message : String(error)}`);
+  process.exit(1);
+}
 
 try { process.loadEnvFile('.env'); }
 catch (error: unknown) {
