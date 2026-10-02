@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 
 function run(command, args) {
+  // 子プロセスの成功・失敗を待ち、ビルド失敗時はアプリを起動しない。
   return new Promise((resolveRun, reject) => {
     const child = spawn(command, args, { stdio: 'inherit' });
     child.once('error', reject);
@@ -26,6 +27,7 @@ process.on('SIGTERM', shutdown);
 process.on('SIGBREAK', shutdown);
 
 try {
+  // シェル専用コマンドを使わず、WindowsとLinuxで同じ手順で起動する。
   await run(process.execPath, [resolve('node_modules/typescript/bin/tsc')]);
   app = spawn(process.execPath, [resolve('dist/src/index.js')], { stdio: 'inherit' });
   app.once('error', (error) => {

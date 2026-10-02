@@ -1,4 +1,5 @@
 export function redactErrorText(text: string, secrets: string[] = []): string {
+  // 既知の秘密値を先に伏せ、URL・公開IDも除いて一行のログへ整える。
   let safe = text;
   for (const secret of [...secrets].filter(Boolean).sort((a, b) => b.length - a.length)) {
     safe = safe.split(secret).join('[非公開]');
@@ -11,6 +12,7 @@ export function redactErrorText(text: string, secrets: string[] = []): string {
 export function describeError(error: unknown, secrets: string[] = []): string {
   const seen = new Set<object>();
   function describe(value: unknown, depth: number): string {
+    // 深いcauseや循環参照によって、ログ生成が際限なく続くのを防ぐ。
     if (depth > 4) return '[省略]';
     if (typeof value !== 'object' || value === null) return redactErrorText(String(value), secrets);
     if (seen.has(value)) return '[循環参照]';
@@ -23,6 +25,7 @@ export function describeError(error: unknown, secrets: string[] = []): string {
     }
     if (fields.cause !== undefined) parts.push(`cause={${describe(fields.cause, depth + 1)}}`);
     if (Array.isArray(fields.errors)) {
+      // AggregateErrorでは複数の接続試行の原因も確認できるようにする。
       parts.push(`errors=[${fields.errors.slice(0, 5).map(item => describe(item, depth + 1)).join('; ')}${fields.errors.length > 5 ? '; [省略]' : ''}]`);
     }
     return parts.join(', ') || '詳細なし';

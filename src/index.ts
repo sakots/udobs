@@ -6,12 +6,14 @@ import { UdtalkWebClient } from './udtalk-web-client.js';
 import { CaptionHistory } from './caption-history.js';
 import { startLogging } from './logging.js';
 
+// 設定読込より先にログ保存を始め、起動時のエラーも残す。
 try { console.info(`ログ保存先: ${startLogging()}`); }
 catch (error: unknown) {
   console.error(`ログ保存を開始できません: ${error instanceof Error ? error.message : String(error)}`);
   process.exit(1);
 }
 
+// .envがない場合は、環境変数とCLI引数だけで起動できる。
 try { process.loadEnvFile('.env'); }
 catch (error: unknown) {
   if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
@@ -34,6 +36,7 @@ const udtalk = new UdtalkWebClient({
   url: config.udtalkPublicUrl,
   pollMs: config.pollMs,
   onText: (text, utterance) => {
+    // 表示用に改行してから履歴を更新し、変化した字幕ペアだけを送る。
     const caption = wrapText(text, config.maxCharsPerLine);
     const pair = history.update(caption, utterance);
     if (!pair) return;
@@ -46,12 +49,14 @@ void udtalk.start();
 
 let shuttingDown = false;
 function shutdown(): void {
+  // シグナルが重なっても、停止処理は一度だけ実行する。
   if (shuttingDown) return;
   shuttingDown = true;
   console.info('終了処理を開始します。');
   udtalk.stop();
   obs.stop();
   process.exitCode = 0;
+  // 通信の終了を待ちつつ、ハンドルが残った場合は終了を打ち切る。
   const forceExit = setTimeout(() => process.exit(0), 500);
   forceExit.unref();
 }

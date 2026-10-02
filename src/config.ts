@@ -1,3 +1,4 @@
+// アプリ全体の設定と、OBSクライアントが受け取る設定を分ける。
 export interface Config {
   obsUrl: string;
   obsPassword: string;
@@ -30,6 +31,7 @@ const optionToKey: Record<string, keyof Config> = {
 const numericKeys = new Set<keyof Config>(['reconnectMs', 'pollMs', 'maxCharsPerLine']);
 
 export function parseConfig(argv: string[], env: NodeJS.ProcessEnv = process.env): Config {
+  // 既定値 → 環境変数 → CLI引数の順に上書きする。
   const config: Config = {
     ...defaults,
     obsUrl: env.OBS_URL || defaults.obsUrl,
@@ -50,6 +52,7 @@ export function parseConfig(argv: string[], env: NodeJS.ProcessEnv = process.env
     else config[key] = value.trim() as never;
     index += 1;
   }
+  // 接続前に必須項目・URL・数値の範囲を検証する。
   config.obsUrl = config.obsUrl.trim();
   config.inputName = config.inputName.trim();
   config.previousInputName = config.previousInputName.trim();
@@ -72,6 +75,7 @@ export function parseConfig(argv: string[], env: NodeJS.ProcessEnv = process.env
 }
 
 export function toObsClientOptions(config: Config): ObsClientOptions {
+  // アプリ側のキー名をOBSクライアント側の名前へ合わせる。
   return { ...config, url: config.obsUrl, password: config.obsPassword };
 }
 

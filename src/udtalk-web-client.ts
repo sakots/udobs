@@ -1,3 +1,4 @@
+// Web閲覧ページが利用する通信先。公開された安定API仕様ではない点に注意。
 const appBaseUrl = 'https://app.udtalk.jp';
 import type { Utterance } from './caption-history.js';
 import { describeError, redactErrorText } from './error-details.js';
@@ -30,6 +31,7 @@ export class UdtalkWebClient {
       if (this.#stopped) return;
       const token = html.match(/token-txt="[^"]*&quot;hash&quot;:&quot;([0-9a-z]{64})/)?.[1];
       if (!token) throw new Error('公開ページの会話トークンを取得できませんでした。パスコード付きの公開には未対応です。');
+      // 閲覧セッションを作成し、取得開始位置を問い合わせる。
       const initialize = await this.#post(`web/push/initialize/${publicId}`, { t: token });
       if (!initialize.userid) throw new Error('UDトークAPIのユーザー情報を取得できませんでした。');
       const keyData = await this.#post(`web/pull/webTalk/${publicId}`, { t: token, u: initialize.userid });
@@ -38,6 +40,7 @@ export class UdtalkWebClient {
       const current = await this.#post(`web/pull/webTalkCurrent/${publicId}`, { t: token, u: initialize.userid, k: keyData.key });
       if (current.number === undefined || current.current === undefined) throw new Error('UDトークAPIの会話位置を取得できませんでした。');
       const previous = this.#session;
+      // 初回は最新位置から開始。同じトークの再接続では未取得位置を引き継ぐ。
       const resume = previous?.token === token && previous.number <= current.number && previous.current <= current.current;
       this.#session = { publicId, token, user: initialize.userid, key: keyData.key,
         number: resume ? previous.number : current.number,
@@ -49,12 +52,14 @@ export class UdtalkWebClient {
     }
   }
   #scheduleConnect(): void { if (!this.#stopped) this.#timer = setTimeout(() => void this.#connect(), this.pollMs); }
+  // 取得の完了後に次回を予約し、複数の取得を並行して走らせない。
   #schedulePoll(delay = this.pollMs): void { if (!this.#stopped) this.#timer = setTimeout(() => void this.#poll(), delay); }
   async #poll(): Promise<void> {
     try {
       const s = this.#session; if (!s) throw new Error('UDトークの接続情報がありません。');
       const data = await this.#post(`web/pull/webTalkMessage/${s.publicId}`, { u: s.user, t: s.token, k: s.key, l: s.number, c: s.current }, [1, 5]);
       if (this.#stopped) return;
+      // 発話を処理してから取得位置を進め、失敗時の取りこぼしを防ぐ。
       for (const group of data.messages || []) for (const message of group) this.#handleMessage(message);
       s.number = data.number ?? s.number; s.current = data.current ?? s.current;
       if (this.#reportedPollFailure) this.log.info('UDトーク会話の取得が復旧しました。');
@@ -62,11 +67,13 @@ export class UdtalkWebClient {
     } catch (error) {
       if (this.#stopped) return;
       const message = this.#safeMessage(error);
+      // セッション無効時だけ再接続し、一時的な通信失敗は同じ位置から再試行する。
       if (/UDトークAPIの応答 status=(4|7)/.test(message)) { this.log.warn(`UDトーク会話のセッションが無効です: ${message}。再接続します。`); this.#scheduleConnect(); }
       else { this.#consecutivePollFailures += 1; if (this.#consecutivePollFailures >= 3 && !this.#reportedPollFailure) { this.log.warn(`UDトーク会話の取得に${this.#consecutivePollFailures}回連続で失敗しました: ${message}。同じ位置から再試行します。`); this.#reportedPollFailure = true; } this.#schedulePoll(); }
     }
   }
   #handleMessage(message: UdtalkMessage): void {
+    // 確定発話だけを転送。同じIDでも本文が訂正された場合は再処理する。
     if (message.qualify !== 1 || !message.meta) return;
     let meta: Meta; try { meta = JSON.parse(message.meta) as Meta; } catch { return; }
     if (meta.phase !== 'finalized' || !meta.text?.trim()) return;
@@ -94,6 +101,7 @@ export class UdtalkWebClient {
   }
   #safeMessage(error: unknown): string { return redactErrorText(messageOf(error), this.#secrets()); }
   async #communicate<T>(operation: string, secrets: string[], run: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    // 本文の受信・解析まで計測し、通信失敗時だけ安全な診断ログを出す。
     this.#abortController = new AbortController();
     const started = performance.now();
     try {

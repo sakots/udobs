@@ -6,6 +6,7 @@ interface ObsMessage { op: number; d: Record<string, unknown>; }
 
 function sha256Base64(value: string): string { return createHash('sha256').update(value).digest('base64'); }
 export function createObsAuthentication(password: string, salt: string, challenge: string): string {
+  // OBS WebSocket v5の認証では、SHA-256とBase64変換を二段階で行う。
   return sha256Base64(`${sha256Base64(`${password}${salt}`)}${challenge}`);
 }
 
@@ -13,6 +14,7 @@ export class ObsClient {
   #socket?: WebSocket;
   #ready = false;
   #sequence = 0;
+  // 送信待ちと、再接続後にも保持する最新の表示内容を別々に管理する。
   #pendingTexts = new Map<string, string>();
   #desiredTexts = new Map<string, string>();
   #requests = new Map<string, { inputNames: string[]; timer: NodeJS.Timeout }>();
@@ -60,6 +62,7 @@ export class ObsClient {
 
   setText(text: string): void { this.setTextForInput(this.inputName, text); }
   setCaptionPair(current: string, previousInputName: string, previous: string): void {
+    // 両ソースの値をそろえてから送信し、別の世代の字幕が混ざるのを防ぐ。
     for (const [name, text] of [[this.inputName, current], [previousInputName, previous]]) {
       if (!name) continue;
       this.#desiredTexts.set(name, text);
@@ -78,6 +81,7 @@ export class ObsClient {
     let message: ObsMessage;
     try { message = JSON.parse(String(raw)) as ObsMessage; } catch { return; }
     if (message.op === 0) {
+      // Helloへの応答で認証し、不要なOBSイベントは購読しない。
       const authentication = message.d.authentication as { salt?: string; challenge?: string } | undefined;
       const identify: Record<string, unknown> = { rpcVersion: 1, eventSubscriptions: 0 };
       if (authentication?.salt && authentication.challenge) {
@@ -86,11 +90,13 @@ export class ObsClient {
       }
       this.#send({ op: 1, d: identify });
     } else if (message.op === 2) {
+      // 認証完了後は、切断中に更新した字幕も含めて保持値を再送する。
       this.#ready = true;
       this.#pendingTexts = new Map(this.#desiredTexts);
       this.log.info('OBS WebSocketの認証が完了しました。');
       this.#flushTexts();
     } else if (message.op === 7 || message.op === 9) {
+      // 単発・バッチとも、対応する応答を受け取ってから次の更新へ進む。
       const requestId = String(message.d.requestId);
       const request = this.#requests.get(requestId);
       if (!request) return;
@@ -106,10 +112,12 @@ export class ObsClient {
   }
 
   #flushTexts(): void {
+    // 応答待ちは一度に一件。待っている間の更新は最新値へ集約する。
     if (!this.#ready || this.#socket?.readyState !== WebSocket.OPEN || this.#requests.size || !this.#pendingTexts.size) return;
     const texts = [...this.#pendingTexts];
     const requestId = `udtalk-${++this.#sequence}`;
     const timer = setTimeout(() => {
+      // 応答を確認できない場合は、再接続後に保持値を送り直す。
       this.log.warn('OBS更新の応答がありません。再接続して最新字幕を再送します。');
       this.#ready = false;
       this.#clearRequests();
@@ -118,6 +126,7 @@ export class ObsClient {
     this.#requests.set(requestId, { inputNames: texts.map(([name]) => name), timer });
     this.#pendingTexts.clear();
     const requests = texts.map(([inputName, text]) => ({ requestType: 'SetInputSettings', requestData: { inputName, inputSettings: { text }, overlay: true } }));
+    // 二つの字幕は、描画処理に同期するSerialFrameバッチでまとめて更新する。
     this.#send(requests.length === 1
       ? { op: 6, d: { ...requests[0], requestId } }
       : { op: 8, d: { requestId, executionType: 1, haltOnFailure: false, requests } });
