@@ -35,6 +35,8 @@ const history = new CaptionHistory();
 const udtalk = new UdtalkWebClient({
   url: config.udtalkPublicUrl,
   pollMs: config.pollMs,
+  requestTimeoutMs: config.udtalkRequestTimeoutMs,
+  retryMaxMs: config.udtalkRetryMaxMs,
   onText: (text, utterance) => {
     // 表示用に改行してから履歴を更新し、変化した字幕ペアだけを送る。
     const caption = wrapText(text, config.maxCharsPerLine);

@@ -18,3 +18,19 @@ test('OBS設定をクライアントが使うキー名へ変換する', () => {
   const options = toObsClientOptions({ obsUrl: 'ws://example.test:4455', obsPassword: 'secret' } as never);
   assert.equal(options.url, 'ws://example.test:4455'); assert.equal(options.password, 'secret');
 });
+
+test('UDトークの待ち時間は環境変数とCLIで設定でき、範囲を検証する', () => {
+  const env = { OBS_INPUT_NAME: '字幕', UDTALK_PUBLIC_URL: `https://live.udtalk.jp/${'a'.repeat(64)}` };
+  const defaults = parseConfig([], env);
+  assert.equal(defaults.udtalkRequestTimeoutMs, 5000);
+  assert.equal(defaults.udtalkRetryMaxMs, 10000);
+  const config = parseConfig(['--udtalk-request-timeout-ms', '3000', '--udtalk-retry-max-ms', '8000'],
+    { ...env, UDTALK_REQUEST_TIMEOUT_MS: '6000', UDTALK_RETRY_MAX_MS: '12000' });
+  assert.equal(config.udtalkRequestTimeoutMs, 3000);
+  assert.equal(config.udtalkRetryMaxMs, 8000);
+  assert.equal(parseConfig([], { ...env, UDTALK_REQUEST_TIMEOUT_MS: '6000' }).udtalkRequestTimeoutMs, 6000);
+  for (const value of ['0', '-1', 'NaN', '1.5', '4294967296']) {
+    assert.throws(() => parseConfig(['--udtalk-request-timeout-ms', value], env), /udtalk-request-timeout-ms/);
+  }
+  assert.throws(() => parseConfig(['--udtalk-retry-max-ms', '999'], env), /udtalk-retry-max-ms/);
+});
