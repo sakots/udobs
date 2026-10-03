@@ -49,7 +49,7 @@ test('取得失敗ごとに内部原因と所要時間を記録し、取得位�
   assert.equal(diagnostics.length, 5);
   for (const line of diagnostics) {
     assert.match(line, /処理=web\/pull\/webTalkMessage, 経過=\d+ms/);
-    assert.match(line, /タイムアウト設定=15000ms/);
+    assert.match(line, /タイムアウト設定=5000ms/);
     assert.ok(!line.includes(id));
     assert.ok(!line.includes(key));
   }
