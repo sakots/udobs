@@ -17,14 +17,15 @@ export function parsePublicUrl(value: string): { viewerUrl: string; publicId: st
 }
 
 export class UdtalkWebClient {
-  #connectionDiagnostics = new ConnectionDiagnostics();
+  #connectionDiagnostics: ConnectionDiagnostics;
   #stopped = false; #timer?: NodeJS.Timeout; #abortController?: AbortController; #session?: Session; #seenTextKeys = new Set<string>(); #consecutivePollFailures = 0; #reportedPollFailure = false;
   readonly url: string; readonly pollMs: number; readonly onText: (text: string, utterance: Utterance) => void; readonly log: Logger;
   constructor({ url, pollMs, onText, log = console }: { url: string; pollMs: number; onText: (text: string, utterance: Utterance) => void; log?: Logger }) {
     this.url = url; this.pollMs = pollMs; this.onText = onText; this.log = log;
+    this.#connectionDiagnostics = new ConnectionDiagnostics(message => { if (!this.#stopped) this.log.info(message); });
   }
-  async start(): Promise<void> { this.#stopped = false; await this.#connect(); }
-  stop(): void { this.#stopped = true; clearTimeout(this.#timer); this.#abortController?.abort(); }
+  async start(): Promise<void> { this.#stopped = false; this.#connectionDiagnostics.start(); await this.#connect(); }
+  stop(): void { this.#stopped = true; clearTimeout(this.#timer); this.#abortController?.abort(); this.#connectionDiagnostics.stop(); }
   async #connect(): Promise<void> {
     try {
       const { viewerUrl, publicId } = parsePublicUrl(this.url);
@@ -106,7 +107,7 @@ export class UdtalkWebClient {
     // 本文の受信・解析まで計測し、通信失敗時だけ安全な診断ログを出す。
     this.#abortController = new AbortController();
     const started = performance.now();
-    const trace = this.#connectionDiagnostics.begin(hostname);
+    const trace = this.#connectionDiagnostics.begin(hostname, operation);
     try {
       const result = await trace.run(() => run(AbortSignal.any([this.#abortController!.signal, AbortSignal.timeout(15000)])));
       if (!this.#stopped && this.#connectionDiagnostics.shouldReportSuccess(operation, trace)) this.log.info(`UDトーク接続診断: 処理=${operation}, ${trace.summary()}`);
