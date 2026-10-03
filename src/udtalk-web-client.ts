@@ -3,6 +3,7 @@ const appBaseUrl = 'https://app.udtalk.jp';
 import type { Utterance } from './caption-history.js';
 import { describeError, redactErrorText } from './error-details.js';
 import { ConnectionDiagnostics } from './connection-diagnostics.js';
+import { Agent } from 'undici';
 interface Logger { info(message: string): void; warn(message: string): void; }
 interface Session { publicId: string; token: string; user: string; key: string; number: number; current: number; }
 interface ApiResponse { status: number; userid?: string; key?: string; number?: number; current?: number; messages?: UdtalkMessage[][]; }
@@ -17,6 +18,7 @@ export function parsePublicUrl(value: string): { viewerUrl: string; publicId: st
 }
 
 export class UdtalkWebClient {
+  #dispatcher?: Agent;
   #connectionDiagnostics: ConnectionDiagnostics;
   #consecutiveConnectFailures = 0;
   #stopped = false; #timer?: NodeJS.Timeout; #abortController?: AbortController; #session?: Session; #seenTextKeys = new Set<string>(); #consecutivePollFailures = 0; #reportedPollFailure = false;
@@ -27,14 +29,23 @@ export class UdtalkWebClient {
     this.requestTimeoutMs = requestTimeoutMs; this.retryMaxMs = retryMaxMs;
     this.#connectionDiagnostics = new ConnectionDiagnostics(message => { if (!this.#stopped) this.log.info(message); });
   }
-  async start(): Promise<void> { this.#stopped = false; this.#connectionDiagnostics.start(); await this.#connect(); }
-  stop(): void { this.#stopped = true; clearTimeout(this.#timer); this.#abortController?.abort(); this.#connectionDiagnostics.stop(); }
+  async start(): Promise<void> {
+    this.#stopped = false;
+    // 全体のAbortSignalだけでは接続中ソケットが残るため、接続処理にも上限を設ける。
+    this.#dispatcher ??= new Agent({ connect: { timeout: this.requestTimeoutMs }, allowH2: true });
+    this.#connectionDiagnostics.start(); await this.#connect();
+  }
+  stop(): void {
+    this.#stopped = true; clearTimeout(this.#timer); this.#abortController?.abort(); this.#connectionDiagnostics.stop();
+    const dispatcher = this.#dispatcher; this.#dispatcher = undefined;
+    if (dispatcher) void dispatcher.destroy().catch(error => this.log.warn(`UDトーク通信の終了に失敗しました: ${this.#safeMessage(error)}`));
+  }
   async #connect(): Promise<void> {
     if (this.#stopped) return;
     try {
       const { viewerUrl, publicId } = parsePublicUrl(this.url);
       const html = await this.#communicate('公開ページ取得', 'live.udtalk.jp', [publicId], async signal =>
-        (await requireOk(fetch(viewerUrl, { signal }))).text());
+        (await requireOk(fetch(viewerUrl, { signal, dispatcher: this.#dispatcher } as RequestInit & { dispatcher: Agent }))).text());
       if (this.#stopped) return;
       const token = html.match(/token-txt="[^"]*&quot;hash&quot;:&quot;([0-9a-z]{64})/)?.[1];
       if (!token) throw new Error('公開ページの会話トークンを取得できませんでした。パスコード付きの公開には未対応です。');
@@ -106,8 +117,8 @@ export class UdtalkWebClient {
   async #post(path: string, body: Record<string, string | number>, acceptedStatuses = [1]): Promise<ApiResponse> {
     return this.#communicate(path.split('/').slice(0, 3).join('/'), 'app.udtalk.jp', Object.values(body).filter((value): value is string => typeof value === 'string'), async signal => {
       const response = await requireOk(fetch(`${appBaseUrl}/${path}`, {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal,
-      }));
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal, dispatcher: this.#dispatcher,
+      } as RequestInit & { dispatcher: Agent }));
       const data = await response.json() as ApiResponse;
       if (!acceptedStatuses.includes(data.status)) throw new Error(`UDトークAPIの応答 status=${data.status}`);
       return data;
