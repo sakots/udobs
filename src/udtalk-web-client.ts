@@ -2,6 +2,7 @@
 const appBaseUrl = 'https://app.udtalk.jp';
 import type { Utterance } from './caption-history.js';
 import { describeError, redactErrorText } from './error-details.js';
+import { ConnectionDiagnostics } from './connection-diagnostics.js';
 interface Logger { info(message: string): void; warn(message: string): void; }
 interface Session { publicId: string; token: string; user: string; key: string; number: number; current: number; }
 interface ApiResponse { status: number; userid?: string; key?: string; number?: number; current?: number; messages?: UdtalkMessage[][]; }
@@ -16,6 +17,7 @@ export function parsePublicUrl(value: string): { viewerUrl: string; publicId: st
 }
 
 export class UdtalkWebClient {
+  #connectionDiagnostics = new ConnectionDiagnostics();
   #stopped = false; #timer?: NodeJS.Timeout; #abortController?: AbortController; #session?: Session; #seenTextKeys = new Set<string>(); #consecutivePollFailures = 0; #reportedPollFailure = false;
   readonly url: string; readonly pollMs: number; readonly onText: (text: string, utterance: Utterance) => void; readonly log: Logger;
   constructor({ url, pollMs, onText, log = console }: { url: string; pollMs: number; onText: (text: string, utterance: Utterance) => void; log?: Logger }) {
@@ -26,7 +28,7 @@ export class UdtalkWebClient {
   async #connect(): Promise<void> {
     try {
       const { viewerUrl, publicId } = parsePublicUrl(this.url);
-      const html = await this.#communicate('公開ページ取得', [publicId], async signal =>
+      const html = await this.#communicate('公開ページ取得', 'live.udtalk.jp', [publicId], async signal =>
         (await requireOk(fetch(viewerUrl, { signal }))).text());
       if (this.#stopped) return;
       const token = html.match(/token-txt="[^"]*&quot;hash&quot;:&quot;([0-9a-z]{64})/)?.[1];
@@ -86,7 +88,7 @@ export class UdtalkWebClient {
     if (this.#seenTextKeys.size > 1_000) this.#seenTextKeys.delete(this.#seenTextKeys.values().next().value as string);
   }
   async #post(path: string, body: Record<string, string | number>, acceptedStatuses = [1]): Promise<ApiResponse> {
-    return this.#communicate(path.split('/').slice(0, 3).join('/'), Object.values(body).filter((value): value is string => typeof value === 'string'), async signal => {
+    return this.#communicate(path.split('/').slice(0, 3).join('/'), 'app.udtalk.jp', Object.values(body).filter((value): value is string => typeof value === 'string'), async signal => {
       const response = await requireOk(fetch(`${appBaseUrl}/${path}`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal,
       }));
@@ -100,15 +102,23 @@ export class UdtalkWebClient {
     return [this.url, ...(s ? [s.publicId, s.token, s.user, s.key] : [])];
   }
   #safeMessage(error: unknown): string { return redactErrorText(messageOf(error), this.#secrets()); }
-  async #communicate<T>(operation: string, secrets: string[], run: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  async #communicate<T>(operation: string, hostname: string, secrets: string[], run: (signal: AbortSignal) => Promise<T>): Promise<T> {
     // 本文の受信・解析まで計測し、通信失敗時だけ安全な診断ログを出す。
     this.#abortController = new AbortController();
     const started = performance.now();
+    const trace = this.#connectionDiagnostics.begin(hostname);
     try {
-      return await run(AbortSignal.any([this.#abortController.signal, AbortSignal.timeout(15000)]));
+      const result = await trace.run(() => run(AbortSignal.any([this.#abortController!.signal, AbortSignal.timeout(15000)])));
+      if (!this.#stopped && this.#connectionDiagnostics.shouldReportSuccess(operation, trace)) this.log.info(`UDトーク接続診断: 処理=${operation}, ${trace.summary()}`);
+      return result;
     } catch (error) {
-      if (!this.#stopped) this.log.warn(`UDトーク通信失敗: 処理=${operation}, 経過=${Math.round(performance.now() - started)}ms, タイムアウト設定=15000ms, ${describeError(error, [...this.#secrets(), ...secrets])}`);
+      if (!this.#stopped) {
+        this.#connectionDiagnostics.failure(operation);
+        this.log.warn(`UDトーク通信失敗: 処理=${operation}, 経過=${Math.round(performance.now() - started)}ms, タイムアウト設定=15000ms, ${describeError(error, [...this.#secrets(), ...secrets])}, ${trace.summary()}`);
+      }
       throw new Error(redactErrorText(messageOf(error), [...this.#secrets(), ...secrets]), { cause: error });
+    } finally {
+      trace.close();
     }
   }
 }
