@@ -21,6 +21,36 @@ const send = (socket: FakeSocket) => {
   return request;
 };
 
+test('応答完了後の正常なcloseだけを60秒ごとに集約し、停止時に残りを出力する', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const logs: string[] = [];
+  const diagnostics = new ConnectionDiagnostics(message => logs.push(message));
+  t.after(() => diagnostics.stop());
+  for (let i = 0; i < 4; i++) {
+    if (i === 3) {
+      assert.equal(logs.length, 1); // 応答未完了の切断は集約しない
+      assert.match(logs[0], /UDトークソケット終了:/);
+      t.mock.timers.tick(60000);
+      assert.match(logs[1], /正常終了集計: 処理=取得, 件数=2/);
+    }
+    const socket = new FakeSocket();
+    const trace = diagnostics.begin('app.udtalk.jp', '取得');
+    await trace.run(async () => {
+      beginConnect(socket);
+      const request = send(socket);
+      channel(names[4]).publish({ request, response: { statusCode: 200, headers: ['Connection', 'close'] } });
+      if (i !== 2) channel('undici:request:trailers').publish({ request });
+    });
+    trace.close();
+    socket.emit('error', Object.assign(new Error('reset'), { code: 'UND_ERR_INFO' }));
+    socket.emit('close', true);
+  }
+  diagnostics.stop();
+  assert.match(logs[2], /正常終了集計: 処理=取得, 件数=1/);
+  t.mock.timers.tick(60000);
+  assert.equal(logs.length, 3);
+});
+
 test('TCP成立後のTLS未成立を記録し、購読とリスナーを解除する', async (t) => {
   let now = 0;
   t.mock.method(performance, 'now', () => now);

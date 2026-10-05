@@ -19,6 +19,7 @@ export class ObsClient {
   #desiredTexts = new Map<string, string>();
   #requests = new Map<string, { inputNames: string[]; timer: NodeJS.Timeout }>();
   #reconnectTimer?: NodeJS.Timeout;
+  #connectionTimer?: NodeJS.Timeout;
   #stopped = false;
   readonly url: string;
   readonly password: string;
@@ -33,18 +34,45 @@ export class ObsClient {
   connect(): void {
     if (this.#stopped) return;
     clearTimeout(this.#reconnectTimer);
+    clearTimeout(this.#connectionTimer);
+    const previous = this.#socket;
+    this.#socket = undefined;
+    previous?.close();
+    this.#ready = false;
+    this.#clearRequests();
     try { this.#socket = new WebSocket(this.url); }
     catch (error) {
       this.log.error(`OBS URLが不正です: ${JSON.stringify(this.url)} (${messageOf(error)})`);
       this.#reconnectTimer = setTimeout(() => this.connect(), this.reconnectMs);
       return;
     }
-    this.#socket.addEventListener('open', () => this.log.info(`OBSに接続しました: ${this.url}`));
-    this.#socket.addEventListener('message', ({ data }: MessageEvent) => this.#handleMessage(data));
-    this.#socket.addEventListener('close', ({ code, reason }: CloseEvent) => {
+    const socket = this.#socket;
+    const active = () => !this.#stopped && this.#socket === socket;
+    const wait = (stage: string) => {
+      clearTimeout(this.#connectionTimer);
+      this.#connectionTimer = setTimeout(() => {
+        if (!active()) return;
+        this.log.warn(`OBS${stage}が5000msでタイムアウトしました。${this.reconnectMs}ms後に再接続します。`);
+        this.#socket = undefined;
+        this.#ready = false;
+        this.#clearRequests();
+        socket.close();
+        this.#reconnectTimer = setTimeout(() => this.connect(), this.reconnectMs);
+      }, 5000);
+    };
+    wait('接続待ち');
+    socket.addEventListener('open', () => {
+      if (!active()) return;
+      this.log.info(`OBSに接続しました: ${this.url}`);
+      wait('認証待ち');
+    });
+    socket.addEventListener('message', ({ data }: MessageEvent) => { if (active()) this.#handleMessage(data); });
+    socket.addEventListener('close', ({ code, reason }: CloseEvent) => {
+      if (!active()) return;
+      this.#socket = undefined;
+      clearTimeout(this.#connectionTimer);
       this.#ready = false;
       this.#clearRequests();
-      if (this.#stopped) return;
       this.log.warn(`OBSとの接続が切れました（code: ${code}）。${reason ? ` 理由: ${reason}` : ''} ${this.reconnectMs}ms後に再接続します。`);
       this.#reconnectTimer = setTimeout(() => this.connect(), this.reconnectMs);
     });
@@ -55,6 +83,7 @@ export class ObsClient {
     this.#stopped = true;
     this.#ready = false;
     clearTimeout(this.#reconnectTimer);
+    clearTimeout(this.#connectionTimer);
     this.#clearRequests();
     this.#socket?.close();
     this.#socket = undefined;
@@ -90,6 +119,7 @@ export class ObsClient {
       }
       this.#send({ op: 1, d: identify });
     } else if (message.op === 2) {
+      clearTimeout(this.#connectionTimer);
       // 認証完了後は、切断中に更新した字幕も含めて保持値を再送する。
       this.#ready = true;
       this.#pendingTexts = new Map(this.#desiredTexts);
@@ -103,7 +133,10 @@ export class ObsClient {
       clearTimeout(request.timer);
       this.#requests.delete(requestId);
       const results = message.op === 9 ? message.d.results as { requestStatus?: { result?: boolean; comment?: string; code?: number } }[] : [message.d];
-      for (const [index, result] of (results || []).entries()) {
+      const success = Array.isArray(results) && results.length === request.inputNames.length && results.every(result => (result.requestStatus as { result?: boolean } | undefined)?.result === true);
+      if (success) this.log.info(`OBS更新確認: 要求=${requestId}, ソース数=${request.inputNames.length}`);
+      else if (!Array.isArray(results) || results.length !== request.inputNames.length) this.log.error(`OBS更新エラー: 要求=${requestId}, 応答件数が一致しません。`);
+      for (const [index, result] of (Array.isArray(results) ? results : []).entries()) {
         const status = result.requestStatus as { result?: boolean; comment?: string; code?: number } | undefined;
         if (!status?.result) this.log.error(`OBS更新エラー（${request.inputNames[index]}）: ${status?.comment || status?.code}`);
       }
@@ -125,6 +158,7 @@ export class ObsClient {
     }, 5000);
     this.#requests.set(requestId, { inputNames: texts.map(([name]) => name), timer });
     this.#pendingTexts.clear();
+    this.log.info(`OBS更新送信: 要求=${requestId}, ソース数=${texts.length}`);
     const requests = texts.map(([inputName, text]) => ({ requestType: 'SetInputSettings', requestData: { inputName, inputSettings: { text }, overlay: true } }));
     // 二つの字幕は、描画処理に同期するSerialFrameバッチでまとめて更新する。
     this.#send(requests.length === 1

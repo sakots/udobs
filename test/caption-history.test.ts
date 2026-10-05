@@ -2,6 +2,20 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { CaptionHistory } from '../src/caption-history.js';
 
+test('字幕ペアの変更対象と新規・訂正を通知し、重複では通知しない', () => {
+  const changes: unknown[] = [];
+  const history = new CaptionHistory(change => changes.push(change));
+  history.update('A', { id: 'a' });
+  history.update('B', { id: 'b' });
+  history.update('A訂正', { id: 'a' });
+  history.update('B', { id: 'b' });
+  assert.deepEqual(changes, [
+    { reason: '新規発話', changed: '現在字幕', current: 'A', previous: '' },
+    { reason: '新規発話', changed: '現在字幕・前字幕', current: 'B', previous: 'A' },
+    { reason: '訂正', changed: '前字幕', current: 'B', previous: 'A訂正' },
+  ]);
+});
+
 test('前の発話の訂正は現在字幕へ繰り上げない', () => {
   const history = new CaptionHistory();
   history.update('A', { id: 'a', timestamp: 1 });

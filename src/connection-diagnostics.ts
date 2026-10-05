@@ -14,6 +14,7 @@ interface Connection {
   uses: number;
   operation: string;
   response?: { status?: number; connection: string; keepAlive: string };
+  responseComplete?: boolean;
 }
 
 // 許可したヘッダーの既知の値だけを残し、未知の拡張値は保存しない。
@@ -56,6 +57,8 @@ export class ConnectionDiagnostics {
   #failed = new Set<string>();
   #socketCleanups = new Map<Socket, () => void>();
   #stopped = false;
+  #normalEnds = new Map<string, number>();
+  #summaryTimer?: NodeJS.Timeout;
 
   constructor(readonly log: (message: string) => void = () => {}) {}
 
@@ -79,11 +82,13 @@ export class ConnectionDiagnostics {
     let receivedEnd = false;
     let sentEnd = false;
     let errorCode = '未観測';
+    let normalReset = false;
     const onEnd = () => { receivedEnd = true; };
     const onFinish = () => { sentEnd = true; };
     const onError = (error: unknown) => {
       const code = (error as { code?: unknown } | null)?.code;
       errorCode = typeof code === 'string' && /^[A-Z0-9_.-]{1,80}$/.test(code) ? code : 'コードなし';
+      normalReset = code === 'UND_ERR_INFO' && (error as Error)?.message === 'reset';
     };
     const cleanup = () => {
       socket.off('end', onEnd); socket.off('finish', onFinish);
@@ -93,6 +98,12 @@ export class ConnectionDiagnostics {
     const onClose = (hadError: boolean) => {
       cleanup();
       const response = connection.response;
+      if (response?.status === 200 && response.connection === 'close' && connection.responseComplete && (normalReset || (!hadError && errorCode === '未観測'))) {
+        this.#normalEnds.set(connection.operation, (this.#normalEnds.get(connection.operation) ?? 0) + 1);
+        this.#summaryTimer ??= setTimeout(() => this.#flushNormalEnds(), 60000);
+        this.#summaryTimer.unref();
+        return;
+      }
       try {
         this.log(`UDトークソケット終了: 処理=${connection.operation}, 接続#${connection.id}, ソケット経過=${Math.round(performance.now() - connection.started)}ms, 使用回数=${connection.uses}, HTTP=${response?.status ?? '未観測'}, 応答Connection=${response?.connection ?? '未観測'}, 応答Keep-Alive=${response?.keepAlive ?? '未観測'}, 受信終了(end)=${receivedEnd ? 'あり' : '未観測'}, 送信終了(finish)=${sentEnd ? 'あり' : '未観測'}, close.hadError=${Boolean(hadError)}, エラーコード=${errorCode}`);
       } catch { /* 終了ログの失敗で通信処理を壊さない。 */ }
@@ -103,11 +114,22 @@ export class ConnectionDiagnostics {
   }
 
   stop(): void {
+    this.#flushNormalEnds();
     this.#stopped = true;
     for (const cleanup of [...this.#socketCleanups.values()]) cleanup();
   }
 
   start(): void { this.#stopped = false; }
+
+  #flushNormalEnds(): void {
+    clearTimeout(this.#summaryTimer);
+    this.#summaryTimer = undefined;
+    for (const [operation, count] of this.#normalEnds) {
+      try { this.log(`UDトークソケット正常終了集計: 処理=${operation}, 件数=${count}`); }
+      catch { /* 診断ログの失敗で通信・終了処理を壊さない。 */ }
+    }
+    this.#normalEnds.clear();
+  }
 
   shouldReportSuccess(operation: string, trace: ConnectionTrace): boolean {
     if (!trace.observed) return false;
@@ -134,6 +156,10 @@ export class ConnectionTrace {
   #cleanup: (() => void)[] = [];
 
   constructor(readonly diagnostics: ConnectionDiagnostics, readonly hostname: string, readonly operation: string) {
+    this.#subscribe('undici:request:trailers', message => {
+      const connection = this.#requestSockets.get(message.request as object);
+      if (connection) connection.responseComplete = true;
+    });
     this.#subscribe('undici:client:beforeConnect', message => {
       const params = message.connectParams as { hostname?: string } | undefined;
       if (context.getStore() !== this || params?.hostname !== hostname) return;
@@ -159,6 +185,8 @@ export class ConnectionTrace {
       const entry = this.#watch(socket, false);
       entry.reused = entry.connection.uses > 0 ? true : entry.fresh ? false : undefined;
       entry.connection.uses++;
+      entry.connection.responseComplete = false;
+      entry.connection.response = undefined;
       this.#requestSockets.set(request, entry.connection);
     });
     this.#subscribe('undici:request:headers', message => {

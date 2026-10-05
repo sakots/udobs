@@ -1,10 +1,15 @@
 export interface Utterance { id: string; timestamp?: number; }
+interface CaptionChange { reason: '新規発話' | '訂正'; changed: string; current: string; previous: string; }
 
 // 発話IDごとの履歴から、最新字幕と内容の異なる前字幕を選ぶ。
 export class CaptionHistory {
   #entries: { id: string; text: string; timestamp?: number; order: number }[] = [];
   #sequence = 0;
   #lastPair = '';
+  #lastCurrent = '';
+  #lastPrevious = '';
+
+  constructor(readonly onChange: (change: CaptionChange) => void = () => {}) {}
 
   update(text: string, utterance: Utterance): { current: string; previous: string } | undefined {
     const existing = this.#entries.find((entry) => entry.id === utterance.id);
@@ -23,7 +28,11 @@ export class CaptionHistory {
     const key = JSON.stringify([current, previous]);
     // 古い発話の変更などで表示が変わらない場合は、再送を省く。
     if (key === this.#lastPair) return;
+    const changed = [current !== this.#lastCurrent ? '現在字幕' : '', previous !== this.#lastPrevious ? '前字幕' : ''].filter(Boolean).join('・');
     this.#lastPair = key;
+    this.#lastCurrent = current;
+    this.#lastPrevious = previous;
+    this.onChange({ reason: existing ? '訂正' : '新規発話', changed, current, previous });
     return { current, previous };
   }
 }

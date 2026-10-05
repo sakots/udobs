@@ -31,7 +31,9 @@ catch (error: unknown) {
 }
 
 const obs = new ObsClient(toObsClientOptions(config));
-const history = new CaptionHistory();
+const history = new CaptionHistory(change => {
+  console.info(`字幕を送信待ちに登録: 理由=${change.reason}, 変更=${change.changed}, 現在字幕=${JSON.stringify(change.current)}`);
+});
 const udtalk = new UdtalkWebClient({
   url: config.udtalkPublicUrl,
   pollMs: config.pollMs,
@@ -43,7 +45,6 @@ const udtalk = new UdtalkWebClient({
     const pair = history.update(caption, utterance);
     if (!pair) return;
     obs.setCaptionPair(pair.current, config.previousInputName, pair.previous);
-    console.info(`字幕を更新: ${pair.current}`);
   },
 });
 obs.connect();

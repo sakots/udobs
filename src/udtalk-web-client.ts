@@ -36,7 +36,8 @@ export class UdtalkWebClient {
     this.#connectionDiagnostics.start(); await this.#connect();
   }
   stop(): void {
-    this.#stopped = true; clearTimeout(this.#timer); this.#abortController?.abort(); this.#connectionDiagnostics.stop();
+    this.#connectionDiagnostics.stop();
+    this.#stopped = true; clearTimeout(this.#timer); this.#abortController?.abort();
     const dispatcher = this.#dispatcher; this.#dispatcher = undefined;
     if (dispatcher) void dispatcher.destroy().catch(error => this.log.warn(`UDトーク通信の終了に失敗しました: ${this.#safeMessage(error)}`));
   }
