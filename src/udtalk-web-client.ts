@@ -32,7 +32,7 @@ export class UdtalkWebClient {
   async start(): Promise<void> {
     this.#stopped = false;
     // 全体のAbortSignalだけでは接続中ソケットが残るため、接続処理にも上限を設ける。
-    this.#dispatcher ??= new Agent({ connect: { timeout: this.requestTimeoutMs }, allowH2: true });
+    this.#dispatcher ??= new Agent({ connect: { timeout: Math.min(2000, this.requestTimeoutMs) }, allowH2: true });
     this.#connectionDiagnostics.start(); await this.#connect();
   }
   stop(): void {
@@ -142,7 +142,7 @@ export class UdtalkWebClient {
     } catch (error) {
       if (!this.#stopped) {
         this.#connectionDiagnostics.failure(operation);
-        this.log.warn(`UDトーク通信失敗: 処理=${operation}, 経過=${Math.round(performance.now() - started)}ms, タイムアウト設定=${this.requestTimeoutMs}ms, ${describeError(error, [...this.#secrets(), ...secrets])}, ${trace.summary()}`);
+        this.log.warn(`UDトーク通信失敗: 処理=${operation}, 経過=${Math.round(performance.now() - started)}ms, タイムアウト設定=${this.requestTimeoutMs}ms, 接続待ち上限=${Math.min(2000, this.requestTimeoutMs)}ms, ${describeError(error, [...this.#secrets(), ...secrets])}, ${trace.summary()}`);
       }
       throw new Error(redactErrorText(messageOf(error), [...this.#secrets(), ...secrets]), { cause: error });
     } finally {

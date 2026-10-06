@@ -36,7 +36,7 @@ test('公開ページとAPIで専用エージェントを共有し、停止時�
   assert.notEqual(dispatchers[5], dispatcher, '再起動時は破棄済みエージェントを再利用しない');
 });
 
-test('TLSが成立しない接続は全体のAbortSignalなしでも期限でソケットを閉じる', { timeout: 5000 }, async t => {
+for (const requestTimeoutMs of [100, 5000]) test(`TLS接続待ちは通信全体${requestTimeoutMs}msより短い上限でソケットを閉じる`, { timeout: 6000 }, async t => {
   const nativeFetch = globalThis.fetch;
   const sockets = new Set<Socket>();
   let socketClosed!: () => void;
@@ -61,18 +61,33 @@ test('TLSが成立しない接続は全体のAbortSignalなしでも期限でソ
     dispatcher = options?.dispatcher;
     throw new TypeError('fictional failure');
   });
-  const client = new UdtalkWebClient({ url, pollMs: 10000, requestTimeoutMs: 100, onText() {}, log: quiet });
+  const client = new UdtalkWebClient({ url, pollMs: 10000, requestTimeoutMs, onText() {}, log: quiet });
   t.after(() => client.stop());
   await client.start();
   assert.ok(dispatcher);
   const started = performance.now();
   await assert.rejects(nativeFetch(`https://127.0.0.1:${address.port}`, {
-    dispatcher, signal: AbortSignal.timeout(2500),
+    dispatcher, signal: AbortSignal.timeout(4000),
   } as TransportOptions), (error: unknown) => {
     assert.ok(error instanceof Error);
     assert.equal((error.cause as { code?: string })?.code, 'UND_ERR_CONNECT_TIMEOUT');
     return true;
   });
   await closed;
-  assert.ok(performance.now() - started < 2000, '既定の約10秒まで接続ソケットを残さない');
+  assert.ok(performance.now() - started < Math.min(requestTimeoutMs, 2000) + 1000, '接続待ちを最大2秒で打ち切る');
+});
+
+test('接続後の本文受信は2秒を超えても通信全体の上限まで待つ', async t => {
+  let aborted: boolean | undefined;
+  t.mock.method(globalThis, 'fetch', async (_target: unknown, options?: TransportOptions) => {
+    return { ok: true, async text() {
+      await new Promise(resolve => setTimeout(resolve, 2100));
+      aborted = options?.signal?.aborted;
+      return 'fictional page without token';
+    } } as Response;
+  });
+  const client = new UdtalkWebClient({ url, pollMs: 10000, onText() {}, log: quiet });
+  t.after(() => client.stop());
+  await client.start();
+  assert.equal(aborted, false);
 });

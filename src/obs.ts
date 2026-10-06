@@ -20,6 +20,10 @@ export class ObsClient {
   #requests = new Map<string, { inputNames: string[]; timer: NodeJS.Timeout }>();
   #reconnectTimer?: NodeJS.Timeout;
   #connectionTimer?: NodeJS.Timeout;
+  #failureLogTimer?: NodeJS.Timeout;
+  #reconnecting = false;
+  #retryFailures = 0;
+  #lastFailure = '';
   #stopped = false;
   readonly url: string;
   readonly password: string;
@@ -42,7 +46,7 @@ export class ObsClient {
     this.#clearRequests();
     try { this.#socket = new WebSocket(this.url); }
     catch (error) {
-      this.log.error(`OBS URLが不正です: ${JSON.stringify(this.url)} (${messageOf(error)})`);
+      this.#reportConnectionFailure(`OBS接続の開始に失敗しました: ${JSON.stringify(this.url)} (${messageOf(error)})`);
       this.#reconnectTimer = setTimeout(() => this.connect(), this.reconnectMs);
       return;
     }
@@ -52,7 +56,7 @@ export class ObsClient {
       clearTimeout(this.#connectionTimer);
       this.#connectionTimer = setTimeout(() => {
         if (!active()) return;
-        this.log.warn(`OBS${stage}が5000msでタイムアウトしました。${this.reconnectMs}ms後に再接続します。`);
+        this.#reportConnectionFailure(`OBS${stage}が5000msでタイムアウトしました。`);
         this.#socket = undefined;
         this.#ready = false;
         this.#clearRequests();
@@ -69,11 +73,12 @@ export class ObsClient {
     socket.addEventListener('message', ({ data }: MessageEvent) => { if (active()) this.#handleMessage(data); });
     socket.addEventListener('close', ({ code, reason }: CloseEvent) => {
       if (!active()) return;
+      const wasReady = this.#ready;
       this.#socket = undefined;
       clearTimeout(this.#connectionTimer);
       this.#ready = false;
       this.#clearRequests();
-      this.log.warn(`OBSとの接続が切れました（code: ${code}）。${reason ? ` 理由: ${reason}` : ''} ${this.reconnectMs}ms後に再接続します。`);
+      this.#reportConnectionFailure(`OBS${wasReady ? 'との接続が切れました' : 'への再接続に失敗しました'}（code: ${code}）。${reason ? ` 理由: ${reason}` : ''}`);
       this.#reconnectTimer = setTimeout(() => this.connect(), this.reconnectMs);
     });
     this.#socket.addEventListener('error', () => {});
@@ -84,9 +89,32 @@ export class ObsClient {
     this.#ready = false;
     clearTimeout(this.#reconnectTimer);
     clearTimeout(this.#connectionTimer);
+    clearTimeout(this.#failureLogTimer);
+    this.#flushConnectionFailures();
     this.#clearRequests();
     this.#socket?.close();
     this.#socket = undefined;
+  }
+
+  #reportConnectionFailure(reason: string): void {
+    this.#lastFailure = reason;
+    if (this.#reconnecting) { this.#retryFailures++; return; }
+    this.#reconnecting = true;
+    this.log.warn(`${reason} ${this.reconnectMs}ms後に再接続します。`);
+    const summarize = () => {
+      if (this.#stopped || !this.#reconnecting) return;
+      this.#flushConnectionFailures();
+      this.#failureLogTimer = setTimeout(summarize, 60000);
+      this.#failureLogTimer.unref?.();
+    };
+    this.#failureLogTimer = setTimeout(summarize, 60000);
+    this.#failureLogTimer.unref?.();
+  }
+
+  #flushConnectionFailures(): void {
+    if (!this.#retryFailures) return;
+    this.log.info(`OBS再接続失敗集計: 件数=${this.#retryFailures}, 最後の理由=${this.#lastFailure}`);
+    this.#retryFailures = 0;
   }
 
   setText(text: string): void { this.setTextForInput(this.inputName, text); }
@@ -120,6 +148,12 @@ export class ObsClient {
       this.#send({ op: 1, d: identify });
     } else if (message.op === 2) {
       clearTimeout(this.#connectionTimer);
+      if (this.#reconnecting) {
+        clearTimeout(this.#failureLogTimer);
+        this.#flushConnectionFailures();
+        this.#reconnecting = false;
+        this.log.info('OBSとの接続が復旧しました。');
+      }
       // 認証完了後は、切断中に更新した字幕も含めて保持値を再送する。
       this.#ready = true;
       this.#pendingTexts = new Map(this.#desiredTexts);
