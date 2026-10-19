@@ -14,7 +14,8 @@ UDトークとOBSへの接続設定、OS共通の起動、停止時の資源解�
 | `OBS_URL` | `--obs-url` | `ws://127.0.0.1:4455` |
 | `RECONNECT_MS` | `--reconnect-ms` | `2000` |
 | `UDTALK_PUBLIC_URL` | `--udtalk-url`（繰り返し可） | 1件以上必須 |
-| `UDTALK_PASSCODE` | `--udtalk-passcode` | 空文字（全URL共通） |
+| `UDTALK_PASSCODE` | `--udtalk-passcode` | 空文字（個別指定がないURLの共通値） |
+| `UDTALK_PASSCODES` | `--udtalk-passcodes` | `{}`（URLをキー、パスコード文字列を値とするJSON） |
 | `POLL_MS` | `--poll-ms` | `1000` |
 | `UDTALK_REQUEST_TIMEOUT_MS` | `--udtalk-request-timeout-ms` | `5000` |
 | `UDTALK_RETRY_MAX_MS` | `--udtalk-retry-max-ms` | `10000` |
@@ -48,7 +49,7 @@ UDトークとOBSへの接続設定、OS共通の起動、停止時の資源解�
 
 ### Requirement: 複数のWeb公開URL設定
 
-アプリは `UDTALK_PUBLIC_URL` のカンマ区切り・改行区切りのURL一覧と、繰り返し指定した `--udtalk-url` を受け付けなければならない（MUST）。環境変数の一覧では各要素の前後の空白と空要素を除去する（MUST）。CLIの各URLは前後の空白を除去し、空の指定を拒否する（MUST）。1件以上のURLを要求し、全URLを接続前に検証しなければならない（MUST）。CLIにURL指定がある場合は環境変数の一覧全体を置き換える（MUST）。同じ公開IDは設定順で最初のURLだけを保持し、重複接続してはならない（MUST NOT）。パスコードと通信間隔・タイムアウトは全URL共通とする。
+アプリは `UDTALK_PUBLIC_URL` のカンマ区切り・改行区切りのURL一覧と、繰り返し指定した `--udtalk-url` を受け付けなければならない（MUST）。環境変数の一覧では各要素の前後の空白と空要素を除去する（MUST）。CLIの各URLは前後の空白を除去し、空の指定を拒否する（MUST）。1件以上のURLを要求し、全URLを接続前に検証しなければならない（MUST）。CLIにURL指定がある場合は環境変数の一覧全体を置き換える（MUST）。同じ公開IDは設定順で最初のURLだけを保持し、重複接続してはならない（MUST NOT）。通信間隔・タイムアウトは全URL共通とする。
 
 #### Scenario: CLIでURL一覧を置き換える
 
@@ -60,6 +61,25 @@ UDトークとOBSへの接続設定、OS共通の起動、停止時の資源解�
 
 - **WHEN** URL一覧の途中に不正なURLがある
 - **THEN** どのURLにも接続せず、秘密のURLを含めない設定エラーで終了する
+
+### Requirement: URL別のWeb公開パスコード
+
+アプリは `UDTALK_PASSCODES` または `--udtalk-passcodes` に、公開URLをキー、パスコード文字列を値とするJSONオブジェクトを受け付けなければならない（MUST）。CLIの指定は環境変数の個別設定全体を置き換える（MUST）。各URLには公開IDが一致する個別値を優先し、個別指定がない場合だけ `UDTALK_PASSCODE` の共通値を使わなければならない（MUST）。空文字の個別値、先頭ゼロ、前後の空白、区切り文字を保持しなければならない（MUST）。URL一覧の並べ替え・CLIによる置き換え・重複除去によって対応するパスコードを取り違えてはならない（MUST NOT）。個別設定だけでは接続先を追加しない。
+
+設定値全体を接続前に検証し、不正なJSON、オブジェクト以外、文字列でない値、不正な公開URL、同じ公開IDに対する異なるパスコードを拒否しなければならない（MUST）。未使用URLの有効な個別設定は許可する。設定エラーには入力JSON、実際のURL、パスコードを含めてはならない（MUST NOT）。
+
+#### Scenario: 異なるパスコードで複数URLへ接続する
+
+- **GIVEN** URL AとBの個別パスコードが異なる
+- **WHEN** URLをB、Aの順に指定して起動する
+- **THEN** BとAはそれぞれ対応する個別値で認証し、再接続でも同じ対応を維持する
+
+#### Scenario: 共通値より空の個別値を優先する
+
+- **GIVEN** 共通パスコードと、URL Aに空文字の個別値が設定されている
+- **WHEN** URL Aと、個別指定のないURL Bを設定する
+- **THEN** Aのパスコードは空文字、Bは共通値になる
+
 
 
 ### Requirement: 接続前の設定検証

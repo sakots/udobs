@@ -88,7 +88,7 @@ export class UdtalkWebClient {
     if (this.#stopped) return;
     if (auth.requires === false) return;
     if (auth.requires !== true) throw new Error('UDトークのパスコード認証の要否を確認できませんでした。');
-    if (!this.#passcode) throw new Error('Web公開にはパスコードが必要です。UDTALK_PASSCODE または --udtalk-passcode を設定してください。');
+    if (!this.#passcode) throw new Error('Web公開にはパスコードが必要です。UDTALK_PASSCODES（--udtalk-passcodes）のURL別設定、または共通値 UDTALK_PASSCODE（--udtalk-passcode）を設定してください。');
     const xsrfCookie = cookies.find(cookie => cookie.startsWith('XSRF-TOKEN='));
     if (!xsrfCookie) throw new Error('パスコード認証に必要なCookieを取得できませんでした。');
     const xsrf = decodeURIComponent(xsrfCookie.slice('XSRF-TOKEN='.length));
@@ -100,7 +100,7 @@ export class UdtalkWebClient {
         body: JSON.stringify({ url: publicId, passcode: this.#passcode }), signal, dispatcher: this.#dispatcher,
       } as RequestInit & { dispatcher: Agent }));
       const data = await response.json() as { status: number; token?: unknown };
-      if (data.status !== 1) throw new Error('パスコード認証に失敗しました。UDTALK_PASSCODE を確認してください。');
+      if (data.status !== 1) throw new Error('パスコード認証に失敗しました。UDTALK_PASSCODES の該当URLの値、または共通値 UDTALK_PASSCODE を確認してください。');
       if (typeof data.token !== 'string' || !data.token) throw new Error('パスコード認証のトークンを取得できませんでした。');
       this.#authToken = data.token;
     });
