@@ -43,3 +43,98 @@ test('Web公開パスコードは任意で、CLI優先の文字列として扱�
   assert.equal(config.udtalkPasscode, ' 00 &+# ');
   assert.throws(() => parseConfig(['--udtalk-passcode'], env), /値が必要/);
 });
+
+test('Web公開URLの単一設定とカンマ・改行区切りの一覧を読み込む', () => {
+  const a = `https://live.udtalk.jp/${'a'.repeat(64)}`;
+  const b = `https://live.udtalk.jp/${'b'.repeat(64)}`;
+  const c = `https://live.udtalk.jp/${'c'.repeat(64)}`;
+  assert.deepEqual(parseConfig([], { OBS_INPUT_NAME: '字幕', UDTALK_PUBLIC_URL: a }).udtalkPublicUrls, [a]);
+  assert.deepEqual(parseConfig([], {
+    OBS_INPUT_NAME: '字幕', UDTALK_PUBLIC_URL: ` ${a}, \r\n ${b}\n${c}, `,
+  }).udtalkPublicUrls, [a, b, c]);
+});
+
+test('繰り返したCLIのURL指定は環境変数の一覧全体を置き換える', () => {
+  const a = `https://live.udtalk.jp/${'a'.repeat(64)}`;
+  const b = `https://live.udtalk.jp/${'b'.repeat(64)}`;
+  assert.deepEqual(parseConfig(['--udtalk-url', ` ${a} `, '--udtalk-url', b], {
+    OBS_INPUT_NAME: '字幕', UDTALK_PUBLIC_URL: 'invalid',
+  }).udtalkPublicUrls, [a, b]);
+  assert.throws(() => parseConfig(['--udtalk-url', a, '--udtalk-url'], { OBS_INPUT_NAME: '字幕' }), /値が必要/);
+});
+
+test('同じ公開IDのURLは先頭だけを保持し、別の公開IDは残す', () => {
+  const a = `https://live.udtalk.jp/${'a'.repeat(64)}`;
+  const b = `https://live.udtalk.jp/${'b'.repeat(64)}`;
+  assert.deepEqual(parseConfig([], {
+    OBS_INPUT_NAME: '字幕', UDTALK_PUBLIC_URL: `${a},${b},${a}?viewer=duplicate#fragment`,
+  }).udtalkPublicUrls, [a, b]);
+});
+
+test('URL一覧全体を検証し、エラーに秘密のURLを含めない', () => {
+  const a = `https://live.udtalk.jp/${'a'.repeat(64)}`;
+  for (const value of ['', ' , \r\n ', `${a},https://example.test/private`, `${a},not-a-url`]) {
+    assert.throws(() => parseConfig([], { OBS_INPUT_NAME: '字幕', UDTALK_PUBLIC_URL: value }), error =>
+      error instanceof Error && /Web公開URL/.test(error.message)
+      && !error.message.includes(a) && !error.message.includes('example.test/private'));
+  }
+});
+
+test('URL別パスコードは順番や重複除去に依存せず、共通値より優先する', () => {
+  const a = `https://live.udtalk.jp/${'a'.repeat(64)}`;
+  const b = `https://live.udtalk.jp/${'b'.repeat(64)}`;
+  const c = `https://live.udtalk.jp/${'c'.repeat(64)}`;
+  const secret = ' 0012, &+#"\\ ';
+  const config = parseConfig([], {
+    OBS_INPUT_NAME: '字幕', UDTALK_PUBLIC_URL: `${b},${a},${b}#duplicate,${c}`,
+    UDTALK_PASSCODE: 'common',
+    UDTALK_PASSCODES: JSON.stringify({ [`${a}?viewer=alternate`]: secret, [b]: '' }),
+  });
+  assert.deepEqual(config.udtalkPublicUrls, [b, a, c]);
+  assert.deepEqual(config.udtalkPasscodes, { [b]: '', [a]: secret, [c]: 'common' });
+});
+
+test('個別設定のCLI指定は環境変数全体を置き換え、未指定URLには共通値を使う', () => {
+  const a = `https://live.udtalk.jp/${'a'.repeat(64)}`;
+  const b = `https://live.udtalk.jp/${'b'.repeat(64)}`;
+  const env = {
+    OBS_INPUT_NAME: '字幕', UDTALK_PUBLIC_URL: a, UDTALK_PASSCODE: 'environment-common',
+    UDTALK_PASSCODES: 'invalid-json',
+  };
+  const config = parseConfig([
+    '--udtalk-url', b, '--udtalk-url', a, '--udtalk-passcode', 'cli-common',
+    '--udtalk-passcodes', JSON.stringify({ [a]: '0012' }),
+  ], env);
+  assert.deepEqual(config.udtalkPasscodes, { [b]: 'cli-common', [a]: '0012' });
+  assert.deepEqual(parseConfig(['--udtalk-passcodes', '{}'], env).udtalkPasscodes, { [a]: 'environment-common' });
+  assert.throws(() => parseConfig(['--udtalk-passcodes'], env), /値が必要/);
+});
+
+test('未使用URLの個別設定で接続先を増やさず、同一公開IDの同じ値は許可する', () => {
+  const a = `https://live.udtalk.jp/${'a'.repeat(64)}`;
+  const b = `https://live.udtalk.jp/${'b'.repeat(64)}`;
+  const config = parseConfig([], {
+    OBS_INPUT_NAME: '字幕', UDTALK_PUBLIC_URL: a,
+    UDTALK_PASSCODES: JSON.stringify({ [a]: '0012', [`${a}#alternate`]: '0012', [b]: 'unused' }),
+  });
+  assert.deepEqual(config.udtalkPublicUrls, [a]);
+  assert.deepEqual(config.udtalkPasscodes, { [a]: '0012' });
+});
+
+test('不正な個別設定と競合する値を拒否し、JSON・URL・パスコードをエラーへ出さない', () => {
+  const a = `https://live.udtalk.jp/${'a'.repeat(64)}`;
+  const secret = 'private-passcode-marker';
+  const invalid = [
+    `{\"${a}\":\"${secret}`, 'null', '[]', 'true', '12', '\"text\"',
+    ...[12, null, true, {}, []].map(value => JSON.stringify({ [a]: value })),
+    JSON.stringify({ 'https://example.test/private-url-marker': secret }),
+    JSON.stringify({ [a]: secret, [`${a}#alternate`]: 'conflicting' }),
+  ];
+  for (const value of invalid) {
+    assert.throws(() => parseConfig([], {
+      OBS_INPUT_NAME: '字幕', UDTALK_PUBLIC_URL: a, UDTALK_PASSCODES: value,
+    }), error => error instanceof Error
+      && !error.message.includes(a) && !error.message.includes(secret)
+      && !error.message.includes('private-url-marker') && !error.message.includes(value));
+  }
+});

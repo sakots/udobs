@@ -34,22 +34,27 @@ const obs = new ObsClient(toObsClientOptions(config));
 const history = new CaptionHistory(change => {
   console.info(`字幕を送信待ちに登録: 理由=${change.reason}, 変更=${change.changed}, 現在字幕=${JSON.stringify(change.current)}`);
 });
-const udtalk = new UdtalkWebClient({
-  url: config.udtalkPublicUrl,
-  passcode: config.udtalkPasscode,
+const udtalkClients = config.udtalkPublicUrls.map((url, index) => new UdtalkWebClient({
+  url,
+  passcode: config.udtalkPasscodes[url],
   pollMs: config.pollMs,
   requestTimeoutMs: config.udtalkRequestTimeoutMs,
   retryMaxMs: config.udtalkRetryMaxMs,
+  log: {
+    info: message => console.info(`[Web公開${index + 1}] ${message}`),
+    warn: message => console.warn(`[Web公開${index + 1}] ${message}`),
+  },
   onText: (text, utterance) => {
     // 表示用に改行してから履歴を更新し、変化した字幕ペアだけを送る。
     const caption = wrapText(text, config.maxCharsPerLine);
-    const pair = history.update(caption, utterance);
+    // URL間で同じ発話IDが使われても、別の発話として保持する。
+    const pair = history.update(caption, { ...utterance, id: `${index}:${utterance.id}` });
     if (!pair) return;
     obs.setCaptionPair(pair.current, config.previousInputName, pair.previous);
   },
-});
+}));
 obs.connect();
-void udtalk.start();
+for (const client of udtalkClients) void client.start();
 
 let shuttingDown = false;
 function shutdown(): void {
@@ -57,7 +62,7 @@ function shutdown(): void {
   if (shuttingDown) return;
   shuttingDown = true;
   console.info('終了処理を開始します。');
-  udtalk.stop();
+  for (const client of udtalkClients) client.stop();
   obs.stop();
   process.exitCode = 0;
   // 通信の終了を待ちつつ、ハンドルが残った場合は終了を打ち切る。
