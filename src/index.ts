@@ -36,6 +36,7 @@ const history = new CaptionHistory(change => {
 });
 const udtalk = new UdtalkWebClient({
   url: config.udtalkPublicUrl,
+  passcode: config.udtalkPasscode,
   pollMs: config.pollMs,
   requestTimeoutMs: config.udtalkRequestTimeoutMs,
   retryMaxMs: config.udtalkRetryMaxMs,

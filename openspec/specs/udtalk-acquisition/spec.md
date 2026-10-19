@@ -1,16 +1,18 @@
 # udtalk-acquisition
 
-実装根拠: [取得クライアント](../../../src/udtalk-web-client.ts)。関連テスト: [URL解析](../../../test/udtalk-web-client.test.ts)、[再試行](../../../test/udtalk-retry.test.ts)、[通信制御](../../../test/udtalk-transport.test.ts)、[取得位置と再接続](../../../test/delivery.test.ts)、[通信失敗と停止](../../../test/udtalk-diagnostics.test.ts)。以下は現在の実装の仕様であり、各シナリオがすべて既存の自動テストで網羅されていることを示すものではない。
+実装根拠: [取得クライアント](../../../src/udtalk-web-client.ts)。関連テスト: [URL解析](../../../test/udtalk-web-client.test.ts)、[パスコード認証](../../../test/udtalk-passcode.test.ts)、[再試行](../../../test/udtalk-retry.test.ts)、[通信制御](../../../test/udtalk-transport.test.ts)、[取得位置と再接続](../../../test/delivery.test.ts)、[通信失敗と停止](../../../test/udtalk-diagnostics.test.ts)。以下は現在の実装の仕様であり、各シナリオがすべて既存の自動テストで網羅されていることを示すものではない。
 
 ## Purpose
 
-UDトークのWeb公開ページから閲覧セッションを作成し、新しい確定発話を字幕処理へ渡す現行動作を定義する。取得先はWeb閲覧ページが使う内部通信であり、公開された安定APIの互換性を保証しない。通信先の変更への追従、パスコード付き公開への対応、Web公開に届かなかった発話の復元は本仕様の対象外とする。診断ログの詳細は[diagnostics](../diagnostics/spec.md)、起動・終了の全体動作は[configuration-runtime](../configuration-runtime/spec.md)で扱う。
+UDトークのWeb公開ページから閲覧セッションを作成し、新しい確定発話を字幕処理へ渡す動作を定義する。取得先はWeb閲覧ページが使う内部通信であり、公開された安定APIの互換性を保証しない。Web公開に届かなかった発話の復元は本仕様の対象外とする。診断ログの詳細は[diagnostics](../diagnostics/spec.md)、起動・終了の全体動作は[configuration-runtime](../configuration-runtime/spec.md)で扱う。
+
+通信方式の根拠: 2026/10/19に実際の公開ページと[閲覧用JavaScript](https://live.udtalk.jp/build/assets/app-B2QMoV0v.js)の `auth/isAuthRoom`、`auth/login`、`X-UD-Authorization` 利用箇所を確認した。公開ページのCookie発行も確認した。実サービスでのパスコード認証成功は未確認であり、認証成功・失敗と再接続は架空の通信を用いて検証する。
 
 ## Requirements
 
 ### Requirement: Web公開URLの解析と閲覧セッション作成
 
-クライアントは、HTTPSかつホスト名が `live.udtalk.jp` で、パスが `/` に続く64文字の半角数字・英小文字だけであるURLから公開IDを抽出しなければならない（MUST）。接続時は公開ページ本文の `token-txt` 内の `hash` に相当する64文字のトークンを取得し、`initialize` によるユーザー取得、`webTalk` によるキー取得、`signWebTalk`、`webTalkCurrent` による現在位置取得の順に閲覧セッションを作成しなければならない（MUST）。API通信はJSONのPOSTを使い、HTTP失敗、許容外の応答status、必要なユーザー・キー・位置の欠落を接続成功として扱ってはならない（MUST NOT）。
+クライアントは、HTTPSかつホスト名が `live.udtalk.jp` で、パスが `/` に続く64文字の半角数字・英小文字だけであるURLから公開IDを抽出しなければならない（MUST）。接続時は公開ページ本文の `token-txt` 内の `hash` に相当する64文字のトークンを取得し、`checkAuth` と必要なパスコード認証を経て、`initialize` によるユーザー取得、`webTalk` によるキー取得、`signWebTalk`、`webTalkCurrent` による現在位置取得の順に閲覧セッションを作成しなければならない（MUST）。API通信はJSONのPOSTを使い、HTTP失敗、許容外の応答status、必要なユーザー・キー・位置の欠落を接続成功として扱ってはならない（MUST NOT）。
 
 #### Scenario: 対応する公開URLから接続する
 
@@ -25,7 +27,44 @@ UDトークのWeb公開ページから閲覧セッションを作成し、新し
 #### Scenario: 公開ページからトークンが得られない
 
 - **WHEN** 公開ページ本文に対応するトークンが見つからない
-- **THEN** パスコード付き公開には未対応である旨を含む接続失敗として扱い、閲覧セッション作成を進めない
+- **THEN** 会話トークンが取得できない接続失敗として扱い、閲覧セッション作成を進めない
+
+### Requirement: 任意のパスコード認証
+
+クライアントは `app.udtalk.jp/web/pull/checkAuth/{公開ID}` へ `{t: 公開ID}` をPOSTし、`requires` が真の場合だけパスコード認証を行わなければならない（MUST）。パスコードが未設定なら設定項目を案内し、閲覧セッション作成へ進んではならない（MUST NOT）。認証が不要ならパスコードが設定済みでも送信してはならない（MUST NOT）。
+
+#### Scenario: パスコードなしの公開へ接続する
+
+- **WHEN** `requires=false` である
+- **THEN** ログイン要求や認証ヘッダーなしで従来どおり接続する
+
+### Requirement: パスコード認証通信と認証ヘッダー
+
+認証は公開ページで発行されたCookieと、`XSRF-TOKEN` CookieをURLデコードした `X-XSRF-TOKEN` ヘッダーを用い、`https://live.udtalk.jp/api/login` へ `{url: 公開ID, passcode: 設定値}` をJSONでPOSTしなければならない（MUST）。status `1` と空でない文字列の `token` を確認してから、その値を `X-UD-Authorization` ヘッダーとして以後の `app.udtalk.jp` のセッション作成と会話取得へ付与しなければならない（MUST）。Cookieとパスコードを `app.udtalk.jp` へ送信してはならない（MUST NOT）。
+
+#### Scenario: パスコード付き公開へ接続する
+
+- **WHEN** `requires=true` で正しいパスコードによる認証応答が返る
+- **THEN** 認証トークン付きでセッションを作成し、初回の現在位置から新しい発話を取得する
+
+#### Scenario: パスコードが未設定または認証失敗
+
+- **WHEN** パスコードが必要なのに未設定、認証が失敗、または認証トークンが不正である
+- **THEN** 設定確認または認証失敗を示し、セッション作成や会話取得を行わない
+
+### Requirement: 再認証と秘密値の保護
+
+再接続では認証トークンを破棄して必要性の確認からやり直し、同じトークの未取得位置と重複排除は維持しなければならない（MUST）。認証通信も既存のタイムアウト・停止・再試行制御を使い、パスコード、Cookie、CSRF値、認証トークンを診断・失敗ログへ出してはならない（MUST NOT）。
+
+#### Scenario: 認証済みセッションが無効になる
+
+- **WHEN** 会話取得のstatusが `7` で、再認証後も同じトークである
+- **THEN** 新しい認証トークンで取得を再開し、復旧中の未取得発話を飛ばさず、同じ発話を重複処理しない
+
+#### Scenario: 認証通信が失敗する
+
+- **WHEN** 認証または認証後のAPI通信が失敗し、例外の内部原因に秘密値が含まれる
+- **THEN** 診断ログと接続失敗ログのどちらにも秘密値を出力しない
 
 ### Requirement: 初回の過去ログ抑止と再接続位置
 
