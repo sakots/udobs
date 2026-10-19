@@ -1,0 +1,90 @@
+# 設定と起動・終了
+
+## Purpose
+
+UDトークとOBSへの接続設定、OS共通の起動、停止時の資源解放を定義する。現行実装を文書化した仕様であり、設定項目や動作の追加ではない。
+
+実装: [config.ts](../../../src/config.ts)、[index.ts](../../../src/index.ts)、[start.mjs](../../../scripts/start.mjs)。確認用テスト: [config.test.ts](../../../test/config.test.ts)。利用手順は[README](../../../README.md)を参照する。
+
+| 環境変数 | CLI引数 | 未設定時の値 |
+| --- | --- | --- |
+| `OBS_INPUT_NAME` | `--input-name` | 必須 |
+| `OBS_PREVIOUS_INPUT_NAME` | `--previous-input-name` | 空文字（前字幕なし） |
+| `OBS_PASSWORD` | `--obs-password` | 空文字 |
+| `OBS_URL` | `--obs-url` | `ws://127.0.0.1:4455` |
+| `RECONNECT_MS` | `--reconnect-ms` | `2000` |
+| `UDTALK_PUBLIC_URL` | `--udtalk-url` | 必須 |
+| `POLL_MS` | `--poll-ms` | `1000` |
+| `UDTALK_REQUEST_TIMEOUT_MS` | `--udtalk-request-timeout-ms` | `5000` |
+| `UDTALK_RETRY_MAX_MS` | `--udtalk-retry-max-ms` | `10000` |
+| `MAX_CHARS_PER_LINE` | `--max-chars-per-line` | `24` |
+
+時間の単位はミリ秒。`.env.example` の `POLL_MS=500` は設定例であり、未設定時の既定値とは異なる。
+
+## Requirements
+
+### Requirement: 設定の読み込みと優先順位
+
+アプリは上表の設定項目と既定値に従い、既定値、環境変数、CLI引数の順で設定を上書きしなければならない（MUST）。起動時に作業ディレクトリの `.env` を読み込み、既に存在する環境変数は上書きしない（MUST）。`.env` が存在しない場合は起動を続け、それ以外の読み込みエラーでは終了しなければならない（MUST）。
+
+#### Scenario: CLI引数で環境変数を上書きする
+
+- **GIVEN** 必須設定があり、環境変数の `UDTALK_REQUEST_TIMEOUT_MS` が `6000` である
+- **WHEN** `--udtalk-request-timeout-ms 3000` を指定する
+- **THEN** 通信全体の上限は `3000` ミリ秒になる
+
+#### Scenario: .envを作らず起動する
+
+- **GIVEN** `.env` が存在せず、環境変数に必須設定がある
+- **WHEN** アプリを起動する
+- **THEN** `.env` 不在を設定エラーとせず、環境変数を使って起動する
+
+### Requirement: 接続前の設定検証
+
+アプリは接続開始前に設定を検証し、不正な場合はエラーとヘルプを表示して終了コード `1` で終了しなければならない（MUST）。
+
+- 現在字幕のソース名とWeb公開URLは必須。
+- 前字幕のソース名は空欄にできるが、現在字幕と同じ名前にはできない。
+- OBS URLのスキームは `ws:` または `wss:`。
+- Web公開URLは `https:`、ホスト名は `live.udtalk.jp`、パスは `/` に続く小文字英数字64文字。
+- `RECONNECT_MS` は有限の0以上の数値。
+- `POLL_MS` は有限の250以上の数値。
+- `UDTALK_REQUEST_TIMEOUT_MS` は1〜2147483647の整数。
+- `UDTALK_RETRY_MAX_MS` は `POLL_MS` 以上、2147483647以下の整数。
+- `MAX_CHARS_PER_LINE` は1以上の整数。
+- 認識するCLIオプションには値が必要。
+
+#### Scenario: 同じソースへの二重指定を拒否する
+
+- **WHEN** 現在字幕と前字幕に同じソース名を指定する
+- **THEN** OBSへ接続せず設定エラーで終了する
+
+#### Scenario: 再試行の上限が通常の待ち時間より短い
+
+- **WHEN** `POLL_MS=1000`、`UDTALK_RETRY_MAX_MS=999` を指定する
+- **THEN** 設定エラーで終了する
+
+### Requirement: OS共通のビルドと起動
+
+`pnpm start` と `node scripts/start.mjs` は、TypeScriptのビルド成功後にアプリを起動しなければならない（MUST）。ランチャーはWindowsのPowerShellとLinuxで共通のNode.js子プロセスAPIを使い、Unix専用のシェル操作に依存してはならない（MUST NOT）。
+
+#### Scenario: ビルドが失敗する
+
+- **WHEN** 起動ランチャー内のTypeScriptコンパイルが失敗する
+- **THEN** アプリは起動せず、ランチャーは終了コード `1` を設定する
+
+### Requirement: 終了操作と通信停止
+
+アプリは `SIGINT`、`SIGTERM`、`SIGBREAK` を受けると、取得処理とOBS接続の停止を一度だけ実行し、正常終了の終了コードを設定しなければならない（MUST）。停止後に再接続や取得のタイマーを作ってはならない（MUST NOT）。アプリは通信終了を待ちつつ、ハンドルが残る場合に備え500ミリ秒後の終了処理を用意しなければならない（MUST）。
+
+#### Scenario: 終了シグナルが重なる
+
+- **WHEN** 終了処理の開始後にもう一度終了シグナルを受ける
+- **THEN** 停止処理を重複実行しない
+- **AND** 取得とOBSの再接続を再開しない
+
+#### Scenario: pnpm経由で中断する
+
+- **WHEN** 利用者が `pnpm start` で起動したアプリを `Ctrl+C` で停止する
+- **THEN** アプリは通信停止処理を実行する
+- **AND** pnpm自身が表示することのある `ELIFECYCLE` は、アプリの終了失敗とは区別して扱う
