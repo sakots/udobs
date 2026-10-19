@@ -2,7 +2,7 @@
 
 ## Purpose
 
-UDトークとOBSへの接続設定、OS共通の起動、停止時の資源解放を定義する。現行実装を文書化した仕様であり、設定項目や動作の追加ではない。
+UDトークとOBSへの接続設定、OS共通の起動、停止時の資源解放を定義する。
 
 実装: [config.ts](../../../src/config.ts)、[index.ts](../../../src/index.ts)、[start.mjs](../../../scripts/start.mjs)。確認用テスト: [config.test.ts](../../../test/config.test.ts)。利用手順は[README](../../../README.md)を参照する。
 
@@ -13,8 +13,8 @@ UDトークとOBSへの接続設定、OS共通の起動、停止時の資源解�
 | `OBS_PASSWORD` | `--obs-password` | 空文字 |
 | `OBS_URL` | `--obs-url` | `ws://127.0.0.1:4455` |
 | `RECONNECT_MS` | `--reconnect-ms` | `2000` |
-| `UDTALK_PUBLIC_URL` | `--udtalk-url` | 必須 |
-| `UDTALK_PASSCODE` | `--udtalk-passcode` | 空文字（パスコードなし） |
+| `UDTALK_PUBLIC_URL` | `--udtalk-url`（繰り返し可） | 1件以上必須 |
+| `UDTALK_PASSCODE` | `--udtalk-passcode` | 空文字（全URL共通） |
 | `POLL_MS` | `--poll-ms` | `1000` |
 | `UDTALK_REQUEST_TIMEOUT_MS` | `--udtalk-request-timeout-ms` | `5000` |
 | `UDTALK_RETRY_MAX_MS` | `--udtalk-retry-max-ms` | `10000` |
@@ -46,11 +46,27 @@ UDトークとOBSへの接続設定、OS共通の起動、停止時の資源解�
 - **WHEN** アプリを起動する
 - **THEN** `.env` 不在を設定エラーとせず、環境変数を使って起動する
 
+### Requirement: 複数のWeb公開URL設定
+
+アプリは `UDTALK_PUBLIC_URL` のカンマ区切り・改行区切りのURL一覧と、繰り返し指定した `--udtalk-url` を受け付けなければならない（MUST）。環境変数の一覧では各要素の前後の空白と空要素を除去する（MUST）。CLIの各URLは前後の空白を除去し、空の指定を拒否する（MUST）。1件以上のURLを要求し、全URLを接続前に検証しなければならない（MUST）。CLIにURL指定がある場合は環境変数の一覧全体を置き換える（MUST）。同じ公開IDは設定順で最初のURLだけを保持し、重複接続してはならない（MUST NOT）。パスコードと通信間隔・タイムアウトは全URL共通とする。
+
+#### Scenario: CLIでURL一覧を置き換える
+
+- **GIVEN** 環境変数にURL AとBが設定されている
+- **WHEN** `--udtalk-url C --udtalk-url D` を指定する
+- **THEN** CとDだけを同時に取得する
+
+#### Scenario: 2件目以降のURLが不正
+
+- **WHEN** URL一覧の途中に不正なURLがある
+- **THEN** どのURLにも接続せず、秘密のURLを含めない設定エラーで終了する
+
+
 ### Requirement: 接続前の設定検証
 
 アプリは接続開始前に設定を検証し、不正な場合はエラーとヘルプを表示して終了コード `1` で終了しなければならない（MUST）。
 
-- 現在字幕のソース名とWeb公開URLは必須。
+- 現在字幕のソース名と1件以上のWeb公開URLは必須。
 - 前字幕のソース名は空欄にできるが、現在字幕と同じ名前にはできない。
 - OBS URLのスキームは `ws:` または `wss:`。
 - Web公開URLは `https:`、ホスト名は `live.udtalk.jp`、パスは `/` に続く小文字英数字64文字。
@@ -82,7 +98,7 @@ UDトークとOBSへの接続設定、OS共通の起動、停止時の資源解�
 
 ### Requirement: 終了操作と通信停止
 
-アプリは `SIGINT`、`SIGTERM`、`SIGBREAK` を受けると、取得処理とOBS接続の停止を一度だけ実行し、正常終了の終了コードを設定しなければならない（MUST）。停止後に再接続や取得のタイマーを作ってはならない（MUST NOT）。アプリは通信終了を待ちつつ、ハンドルが残る場合に備え500ミリ秒後の終了処理を用意しなければならない（MUST）。
+アプリは `SIGINT`、`SIGTERM`、`SIGBREAK` を受けると、全URLの取得処理とOBS接続の停止を一度だけ実行し、正常終了の終了コードを設定しなければならない（MUST）。停止後に再接続や取得のタイマーを作ってはならない（MUST NOT）。アプリは通信終了を待ちつつ、ハンドルが残る場合に備え500ミリ秒後の終了処理を用意しなければならない（MUST）。
 
 #### Scenario: 終了シグナルが重なる
 
