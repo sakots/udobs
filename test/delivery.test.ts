@@ -58,6 +58,7 @@ test('UDトーク再接続時に未取得の発話位置を飛ばさない', asy
     const path = String(url);
     let data: unknown;
     if (path.startsWith('https://live.udtalk.jp')) return new Response(`<udtalk token-txt="{&quot;hash&quot;:&quot;${id}&quot;}">`);
+    if (path.includes('/checkAuth/')) return Response.json({ status: 1, requires: false });
     if (path.includes('initialize/')) { connections++; data = { status: 1, userid: 'user' }; }
     else if (path.includes('/webTalk/')) data = { status: 1, key: 'key' };
     else if (path.includes('signWebTalk/')) data = { status: 1 };

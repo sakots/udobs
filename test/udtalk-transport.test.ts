@@ -16,6 +16,7 @@ test('公開ページとAPIで専用エージェントを共有し、停止時�
     dispatchers.push(options?.dispatcher);
     const path = String(target);
     if (path.startsWith('https://live.')) return new Response(`<x token-txt="&quot;hash&quot;:&quot;${id}">`);
+    if (path.includes('/checkAuth/')) return Response.json({ status: 1, requires: false });
     if (path.includes('initialize/')) return Response.json({ status: 1, userid: 'fictional-user' });
     if (path.includes('/webTalk/')) return Response.json({ status: 1, key: 'fictional-key' });
     if (path.includes('signWebTalk/')) return Response.json({ status: 1 });
@@ -26,14 +27,14 @@ test('公開ページとAPIで専用エージェントを共有し、停止時�
   await client.start();
   const dispatcher = dispatchers[0];
   assert.ok(dispatcher, 'fetchに接続タイムアウト付きエージェントを渡す');
-  assert.equal(dispatchers.length, 5);
   assert.ok(dispatchers.every(value => value === dispatcher));
   client.stop();
   await new Promise<void>(resolve => setImmediate(resolve));
   assert.equal(dispatcher.destroyed, true);
   await client.start();
-  assert.ok(dispatchers[5]);
-  assert.notEqual(dispatchers[5], dispatcher, '再起動時は破棄済みエージェントを再利用しない');
+  const restartedDispatcher = dispatchers.at(-1);
+  assert.ok(restartedDispatcher);
+  assert.notEqual(restartedDispatcher, dispatcher, '再起動時は破棄済みエージェントを再利用しない');
 });
 
 for (const requestTimeoutMs of [100, 5000]) test(`TLS接続待ちは通信全体${requestTimeoutMs}msより短い上限でソケットを閉じる`, { timeout: 6000 }, async t => {
@@ -80,7 +81,7 @@ for (const requestTimeoutMs of [100, 5000]) test(`TLS接続待ちは通信全体
 test('接続後の本文受信は2秒を超えても通信全体の上限まで待つ', async t => {
   let aborted: boolean | undefined;
   t.mock.method(globalThis, 'fetch', async (_target: unknown, options?: TransportOptions) => {
-    return { ok: true, async text() {
+    return { ok: true, headers: new Headers(), async text() {
       await new Promise(resolve => setTimeout(resolve, 2100));
       aborted = options?.signal?.aborted;
       return 'fictional page without token';

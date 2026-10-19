@@ -6,6 +6,7 @@ export interface Config {
   previousInputName: string;
   reconnectMs: number;
   udtalkPublicUrl: string;
+  udtalkPasscode: string;
   pollMs: number;
   udtalkRequestTimeoutMs: number;
   udtalkRetryMaxMs: number;
@@ -22,6 +23,7 @@ export interface ObsClientOptions {
 const defaults: Config = {
   obsUrl: 'ws://127.0.0.1:4455', obsPassword: '', inputName: '', previousInputName: '',
   reconnectMs: 2000, udtalkPublicUrl: '', pollMs: 1000, maxCharsPerLine: 24,
+  udtalkPasscode: '',
   udtalkRequestTimeoutMs: 5000, udtalkRetryMaxMs: 10000,
 };
 
@@ -29,6 +31,7 @@ const optionToKey: Record<string, keyof Config> = {
   '--obs-url': 'obsUrl', '--obs-password': 'obsPassword', '--input-name': 'inputName',
   '--previous-input-name': 'previousInputName', '--reconnect-ms': 'reconnectMs',
   '--udtalk-url': 'udtalkPublicUrl', '--poll-ms': 'pollMs', '--max-chars-per-line': 'maxCharsPerLine',
+  '--udtalk-passcode': 'udtalkPasscode',
   '--udtalk-request-timeout-ms': 'udtalkRequestTimeoutMs', '--udtalk-retry-max-ms': 'udtalkRetryMaxMs',
 };
 
@@ -44,6 +47,7 @@ export function parseConfig(argv: string[], env: NodeJS.ProcessEnv = process.env
     previousInputName: env.OBS_PREVIOUS_INPUT_NAME || defaults.previousInputName,
     reconnectMs: Number(env.RECONNECT_MS || defaults.reconnectMs),
     udtalkPublicUrl: env.UDTALK_PUBLIC_URL || defaults.udtalkPublicUrl,
+    udtalkPasscode: env.UDTALK_PASSCODE || defaults.udtalkPasscode,
     pollMs: Number(env.POLL_MS || defaults.pollMs),
     udtalkRequestTimeoutMs: Number(env.UDTALK_REQUEST_TIMEOUT_MS || defaults.udtalkRequestTimeoutMs),
     udtalkRetryMaxMs: Number(env.UDTALK_RETRY_MAX_MS || defaults.udtalkRetryMaxMs),
@@ -55,7 +59,7 @@ export function parseConfig(argv: string[], env: NodeJS.ProcessEnv = process.env
     const value = argv[index + 1];
     if (value === undefined || value.startsWith('--')) throw new Error(`${argv[index]} には値が必要です。`);
     if (numericKeys.has(key)) config[key] = Number(value) as never;
-    else config[key] = value.trim() as never;
+    else config[key] = (key === 'udtalkPasscode' ? value : value.trim()) as never;
     index += 1;
   }
   // 接続前に必須項目・URL・数値の範囲を検証する。
@@ -83,8 +87,8 @@ export function parseConfig(argv: string[], env: NodeJS.ProcessEnv = process.env
 }
 
 export function toObsClientOptions(config: Config): ObsClientOptions {
-  // アプリ側のキー名をOBSクライアント側の名前へ合わせる。
-  return { ...config, url: config.obsUrl, password: config.obsPassword };
+  // UDトークのパスコードなど、OBSに不要な設定は渡さない。
+  return { url: config.obsUrl, password: config.obsPassword, inputName: config.inputName, reconnectMs: config.reconnectMs };
 }
 
 export const helpText = `UDトーク → OBS テキスト ブリッジ
@@ -98,10 +102,11 @@ export const helpText = `UDトーク → OBS テキスト ブリッジ
   --obs-password <パスワード>
   --obs-url <URL>           既定: ws://127.0.0.1:4455
   --udtalk-url <URL>        UDトークのWeb公開URL（必須）
+  --udtalk-passcode <パスコード>  パスコード付きWeb公開の場合だけ指定
   --poll-ms <ミリ秒>        会話の取得間隔。既定: 1000
   --udtalk-request-timeout-ms <ミリ秒>  通信全体の上限。既定: 5000
   --udtalk-retry-max-ms <ミリ秒>  連続失敗時の再試行間隔の上限。既定: 10000
   --max-chars-per-line <数>  字幕を改行する文字数。既定: 24
   --reconnect-ms <ミリ秒>   既定: 2000
 
-同名の環境変数（OBS_INPUT_NAME, OBS_PREVIOUS_INPUT_NAME, OBS_PASSWORD, OBS_URL, UDTALK_PUBLIC_URL, POLL_MS, UDTALK_REQUEST_TIMEOUT_MS, UDTALK_RETRY_MAX_MS, MAX_CHARS_PER_LINE, RECONNECT_MS）も使えます。`;
+同名の環境変数（OBS_INPUT_NAME, OBS_PREVIOUS_INPUT_NAME, OBS_PASSWORD, OBS_URL, UDTALK_PUBLIC_URL, UDTALK_PASSCODE, POLL_MS, UDTALK_REQUEST_TIMEOUT_MS, UDTALK_RETRY_MAX_MS, MAX_CHARS_PER_LINE, RECONNECT_MS）も使えます。`;

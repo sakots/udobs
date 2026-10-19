@@ -46,6 +46,7 @@ test('連続失敗で待ち時間を上限まで延ばし、復旧後は通常�
   t.mock.method(globalThis, 'fetch', async (target: unknown, options?: RequestInit) => {
     const path = String(target);
     if (path.startsWith('https://live.')) return new Response(`<x token-txt="&quot;hash&quot;:&quot;${id}">`);
+    if (path.includes('/checkAuth/')) return Response.json({ status: 1, requires: false });
     if (path.includes('initialize/')) return Response.json({ status: 1, userid: 'fictional-user' });
     if (path.includes('/webTalk/')) return Response.json({ status: 1, key: 'fictional-key' });
     if (path.includes('signWebTalk/')) return Response.json({ status: 1 });

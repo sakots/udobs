@@ -34,3 +34,12 @@ test('UDトークの待ち時間は環境変数とCLIで設定でき、範囲を
   }
   assert.throws(() => parseConfig(['--udtalk-retry-max-ms', '999'], env), /udtalk-retry-max-ms/);
 });
+
+test('Web公開パスコードは任意で、CLI優先の文字列として扱う', () => {
+  const env = { OBS_INPUT_NAME: '字幕', UDTALK_PUBLIC_URL: `https://live.udtalk.jp/${'a'.repeat(64)}` };
+  assert.equal(parseConfig([], env).udtalkPasscode, '');
+  assert.equal(parseConfig([], { ...env, UDTALK_PASSCODE: '0012' }).udtalkPasscode, '0012');
+  const config = parseConfig(['--udtalk-passcode', ' 00 &+# '], { ...env, UDTALK_PASSCODE: '9999' });
+  assert.equal(config.udtalkPasscode, ' 00 &+# ');
+  assert.throws(() => parseConfig(['--udtalk-passcode'], env), /値が必要/);
+});

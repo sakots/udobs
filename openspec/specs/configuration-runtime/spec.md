@@ -14,6 +14,7 @@ UDトークとOBSへの接続設定、OS共通の起動、停止時の資源解�
 | `OBS_URL` | `--obs-url` | `ws://127.0.0.1:4455` |
 | `RECONNECT_MS` | `--reconnect-ms` | `2000` |
 | `UDTALK_PUBLIC_URL` | `--udtalk-url` | 必須 |
+| `UDTALK_PASSCODE` | `--udtalk-passcode` | 空文字（パスコードなし） |
 | `POLL_MS` | `--poll-ms` | `1000` |
 | `UDTALK_REQUEST_TIMEOUT_MS` | `--udtalk-request-timeout-ms` | `5000` |
 | `UDTALK_RETRY_MAX_MS` | `--udtalk-retry-max-ms` | `10000` |
@@ -32,6 +33,12 @@ UDトークとOBSへの接続設定、OS共通の起動、停止時の資源解�
 - **GIVEN** 必須設定があり、環境変数の `UDTALK_REQUEST_TIMEOUT_MS` が `6000` である
 - **WHEN** `--udtalk-request-timeout-ms 3000` を指定する
 - **THEN** 通信全体の上限は `3000` ミリ秒になる
+
+#### Scenario: Web公開のパスコードを任意に指定する
+
+- **WHEN** `UDTALK_PASSCODE` または `--udtalk-passcode` を指定する
+- **THEN** CLI引数を優先し、先頭のゼロや前後の空白を含めた文字列をそのまま認証へ渡す
+- **AND** 未設定でも設定エラーにはせず、パスコードなしの公開へ接続できる
 
 #### Scenario: .envを作らず起動する
 

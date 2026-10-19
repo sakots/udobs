@@ -15,6 +15,7 @@ test('取得失敗ごとに内部原因と所要時間を記録し、取得位�
   t.mock.method(globalThis, 'fetch', async (url: string | URL | Request, options?: RequestInit) => {
     const path = String(url);
     if (path.startsWith('https://live.udtalk.jp')) return new Response(`<udtalk token-txt="{&quot;hash&quot;:&quot;${id}&quot;}">`);
+    if (path.includes('/checkAuth/')) return Response.json({ status: 1, requires: false });
     if (path.includes('initialize/')) return Response.json({ status: 1, userid: 'fictional-user' });
     if (path.includes('/webTalk/')) return Response.json({ status: 1, key });
     if (path.includes('signWebTalk/')) return Response.json({ status: 1 });
