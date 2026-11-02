@@ -1,0 +1,61 @@
+name: Release archives
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '公開する既存タグ（例: v0.3.9）'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Check release version
+        run: |
+          test "$RELEASE_TAG" = "v$(node -p "JSON.parse(require('node:fs').readFileSync('package.json', 'utf8')).version")"
+          git show-ref --verify "refs/tags/$RELEASE_TAG"
+      - name: Install archive tools
+        run: sudo apt-get update && sudo apt-get install -y zip p7zip-full
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm test:release
+      - run: pnpm release:pack
+      - name: Smoke test extracted setup
+        run: |
+          version="$(node -p "JSON.parse(require('node:fs').readFileSync('package.json', 'utf8')).version")"
+          tar -xzf "release/udobs-$version.tar.gz" -C "$RUNNER_TEMP"
+          cd "$RUNNER_TEMP/udobs-$version"
+          pnpm install --frozen-lockfile
+          pnpm build
+          node dist/src/index.js --help
+      - name: Publish release archives
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" release/*.zip release/*.tar.gz release/*.7z --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$RELEASE_TAG" release/*.zip release/*.tar.gz release/*.7z --verify-tag --title "$RELEASE_TAG" --generate-notes --repo "$GITHUB_REPOSITORY"
+          fi
